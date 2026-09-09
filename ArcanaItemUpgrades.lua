@@ -370,6 +370,24 @@ GameTooltip:HookScript("OnTooltipSetItem", function(tooltip)
     if not link then
         return
     end
+
+    -- Character-sheet slot buttons expose their inventory slot as a 1-based
+    -- button ID. Prefer that exact slot so two identical rings or trinkets can
+    -- still display different per-item upgrade ranks.
+    local owner = tooltip:GetOwner()
+    local ownerName = owner and owner.GetName and owner:GetName()
+    local inventorySlot = owner and owner.GetID and owner:GetID()
+    if ownerName and string.find(ownerName, "^Character") and inventorySlot then
+        local equipped = state.slots[inventorySlot - 1]
+        if equipped then
+            tooltip:AddLine(string.format("Arcana Upgrade: %d/%d (+%d%%)", equipped.rank,
+                state.maxRank, equipped.rank * state.percent), 0.71, 0.55, 1)
+            tooltip:Show()
+            return
+        end
+    end
+
+    -- Fall back to item-link matching for other equipment tooltip owners.
     for slotIndex, slot in pairs(state.slots) do
         if GetInventoryItemLink("player", slotIndex + 1) == link then
             tooltip:AddLine(string.format("Arcana Upgrade: %d/%d (+%d%%)", slot.rank,
