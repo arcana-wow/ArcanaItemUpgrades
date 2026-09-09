@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Arcana Item Upgrades
+## Notes: View and upgrade equipped items on Arcana.
+## Author: Arcana
+## Version: 1.0.0
+
+ArcanaItemUpgrades.lua
