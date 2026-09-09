@@ -30,7 +30,7 @@ jobs:
           grep -Fxq '## Interface: 30300' ArcanaItemUpgrades.toc
           grep -Eq '^## Version: [0-9]+\.[0-9]+\.[0-9]+$' ArcanaItemUpgrades.toc
           grep -Fxq 'ArcanaItemUpgrades.lua' ArcanaItemUpgrades.toc
-          if grep -Eq 'C_ChatInfo|RegisterAddonMessagePrefix[[:space:]]*\(' ArcanaItemUpgrades.lua; then
+          if grep -Eq 'C_ChatInfo|C_AddOns|C_Container' ArcanaItemUpgrades.lua; then
             echo 'Modern-only addon API detected' >&2
             exit 1
           fi
