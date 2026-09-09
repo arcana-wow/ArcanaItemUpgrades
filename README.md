@@ -7,10 +7,15 @@ item upgrade system.
 
 - Adds an **Item Upgrades** shortcut to the character sheet.
 - Lists eligible equipped items and their server-owned rank from 0/5 to 5/5.
-- Shows matching-token, wildcard-token, duplicate, and Legendary-token counts.
+- Uses a bounded scrolling list that cannot overlap the footer at maximum
+  equipment capacity.
+- Provides one **Upgrade** button, followed by an exact choice between any
+  available Uncommon matching, Rare Wildcard, Epic matching, Epic Wildcard,
+  duplicate-item, and Legendary-token payment.
 - Confirms every consumption, with a stronger confirmation for a Legendary
   token that jumps an item directly to 5/5.
-- Adds `Arcana Upgrade: 3/5 (+15%)` to equipped-item tooltips.
+- Adds the rank and server-calculated effective stats, armor, resistances,
+  block, and weapon damage to upgraded equipped-item tooltips.
 - Supports `/upgrades` and `/itemupgrades`.
 
 The addon never calculates or writes a rank. It sends a request to the realm,
@@ -48,13 +53,14 @@ Client requests:
 
 ```text
 CMD<TAB>SYNC
-CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>MATCH|WILD|DUP|LEGEND
+CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>UNCOMMON_MATCH|RARE_WILD|EPIC_MATCH|EPIC_WILD|DUP|LEGEND
 ```
 
 Server replies are framed with `BEGIN` and `END`; each `SLOT` line contains the
-equipped entry, authoritative rank, family, and available payment counts.
-`RESULT` and `ERROR` carry the player-facing outcome. The server consumes the
-control messages so they are never relayed as chat.
+equipped entry, authoritative rank, family, and exact per-rarity payment
+counts. `STAT`, `VALUE`, and `DAMAGE` lines contain authoritative base and
+effective item values. `RESULT` and `ERROR` carry the player-facing outcome.
+The server consumes the control messages so they are never relayed as chat.
 
 ## Repository and releases
 
