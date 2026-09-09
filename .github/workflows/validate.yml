@@ -1,0 +1,52 @@
+name: Validate addon
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: addon-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Validate WotLK addon contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ArcanaItemUpgrades.toc
+          test -s ArcanaItemUpgrades.lua
+          test -s README.md
+          test -s LICENSE
+          grep -Fxq '## Interface: 30300' ArcanaItemUpgrades.toc
+          grep -Eq '^## Version: [0-9]+\.[0-9]+\.[0-9]+$' ArcanaItemUpgrades.toc
+          grep -Fxq 'ArcanaItemUpgrades.lua' ArcanaItemUpgrades.toc
+          if grep -Eq 'C_ChatInfo|C_AddOns|C_Container' ArcanaItemUpgrades.lua; then
+            echo 'Modern-only addon API detected' >&2
+            exit 1
+          fi
+
+      - name: Build install-ready archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d package/ArcanaItemUpgrades
+          install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua README.md LICENSE package/ArcanaItemUpgrades/
+          cd package
+          zip -X -r ../ArcanaItemUpgrades.zip ArcanaItemUpgrades
+
+      - name: Upload archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ArcanaItemUpgrades
+          path: ArcanaItemUpgrades.zip
+          if-no-files-found: error
