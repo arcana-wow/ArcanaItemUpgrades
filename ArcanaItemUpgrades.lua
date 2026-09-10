@@ -73,6 +73,14 @@ local function Send(command)
     SendAddonMessage(PREFIX, command, "WHISPER", UnitName("player"))
 end
 
+local function RegisterPrefixIfSupported()
+    -- RegisterAddonMessagePrefix was added after the 3.3.5a client. Arcana's
+    -- self-whisper protocol works without registration on this client.
+    if type(RegisterAddonMessagePrefix) == "function" then
+        RegisterAddonMessagePrefix(PREFIX)
+    end
+end
+
 local RequestSync
 
 local function IsRemoteLocationAllowed()
@@ -322,7 +330,7 @@ for index = 1, #SOURCE_DEFINITIONS do
 
     button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     button.label:SetPoint("LEFT", button.icon, "RIGHT", 7, 0)
-    button.label:SetPoint("RIGHT", -8, 0)
+    button.label:SetWidth(307)
     button.label:SetJustifyH("LEFT")
 
     button:SetScript("OnEnter", function(self)
@@ -430,8 +438,15 @@ local function ShowSourceChooser()
         if definition then
             local entry, sourceName, quality, texture = ResolveSourceItem(slot, definition)
             button.arcanaEntry = entry
+            button.label:SetWidth(307)
             button.icon:SetTexture(texture)
             button.label:SetText(sourceName .. " (" .. (slot[definition.count] or 0) .. ")")
+            local labelWidth = math.min(button.label:GetStringWidth() + 1, 307)
+            local contentWidth = 20 + 7 + labelWidth
+            button.icon:ClearAllPoints()
+            button.icon:SetPoint("LEFT", button, "LEFT",
+                math.max(8, (button:GetWidth() - contentWidth) / 2), 0)
+            button.label:SetWidth(labelWidth)
             if quality then
                 local red, green, blue = GetItemQualityColor(quality)
                 button.label:SetTextColor(red, green, blue)
@@ -577,7 +592,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         local addon = ...
         if addon == "ArcanaItemUpgrades" then
             ArcanaItemUpgradesDB = ArcanaItemUpgradesDB or {}
-            RegisterAddonMessagePrefix(PREFIX)
+            RegisterPrefixIfSupported()
             InstallMinimapButton()
         end
         if addon == "ArcanaItemUpgrades" or addon == "Blizzard_CharacterUI" then
@@ -586,13 +601,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         return
     end
     if event == "PLAYER_LOGIN" then
-        RegisterAddonMessagePrefix(PREFIX)
+        RegisterPrefixIfSupported()
         InstallCharacterButton()
         InstallMinimapButton()
         UpdateMinimapButtonIcon()
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
+        InstallMinimapButton()
+        UpdateMinimapButtonIcon()
         RequestSync(true)
         return
     end

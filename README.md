@@ -6,13 +6,16 @@ item upgrade system.
 ## Features
 
 - Adds a draggable Arcane Focus minimap shortcut and saves its position.
+- Uses a 3.3.5a-compatible addon-message initialization path and retries
+  minimap-button installation after entering the world.
 - Adds an **Item Upgrades** shortcut to the character sheet.
 - Lists eligible equipped items and their server-owned rank from 0/5 to 5/5.
 - Uses a bounded scrolling list that cannot overlap the footer at maximum
   equipment capacity.
 - Provides one **Upgrade** button, followed by an exact choice between every
   available payment item. Each choice shows the consumed item's full server
-  name, quality color, icon, count, and normal item tooltip.
+  name, quality color, icon, count, and normal item tooltip. The icon and full
+  source name are centered together within the choice button.
 - Confirms every consumption, with a stronger confirmation for a Legendary
   token that jumps an item directly to 5/5.
 - Adds the rank and server-calculated effective stats, armor, resistances,
