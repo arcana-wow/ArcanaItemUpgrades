@@ -1,6 +1,9 @@
 local PREFIX = "AUI"
 local VISIBLE_ROWS = 14
 local ROW_HEIGHT = 20
+local SYNC_RETRY_DELAYS = { 1, 3, 8 }
+local MINIMAP_RADIUS = 80
+local ARCANE_FOCUS_ICON = "Interface\\Icons\\Spell_Holy_Devotion"
 
 local state = {
     slots = {},
@@ -8,6 +11,8 @@ local state = {
     maxRank = 5,
     percent = 5,
     syncing = false,
+    syncRetryIndex = nil,
+    syncRetryAt = nil,
 }
 
 local STAT_LABELS = {
@@ -68,6 +73,8 @@ local function Send(command)
     SendAddonMessage(PREFIX, command, "WHISPER", UnitName("player"))
 end
 
+local RequestSync
+
 local function IsRemoteLocationAllowed()
     if UnitIsDeadOrGhost("player") then
         return false, "You must be alive."
@@ -108,6 +115,79 @@ frame:SetBackdrop({
 })
 frame:Hide()
 table.insert(UISpecialFrames, frame:GetName())
+local function ToggleUpgradeFrame()
+    if frame:IsShown() then frame:Hide() else frame:Show() end
+end
+
+local minimapButton
+local function UpdateMinimapButtonPosition()
+    if not minimapButton then return end
+    local angle = tonumber(ArcanaItemUpgradesDB and ArcanaItemUpgradesDB.minimapAngle) or 225
+    local radians = math.rad(angle)
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER",
+        math.cos(radians) * MINIMAP_RADIUS, math.sin(radians) * MINIMAP_RADIUS)
+end
+
+local function UpdateMinimapButtonFromCursor(self)
+    local cursorX, cursorY = GetCursorPosition()
+    local scale = Minimap:GetEffectiveScale()
+    local centerX, centerY = Minimap:GetCenter()
+    if not scale or not centerX or not centerY then return end
+    cursorX, cursorY = cursorX / scale, cursorY / scale
+    ArcanaItemUpgradesDB.minimapAngle = math.deg(math.atan2(cursorY - centerY, cursorX - centerX))
+    UpdateMinimapButtonPosition()
+end
+
+local function UpdateMinimapButtonIcon()
+    if not minimapButton then return end
+    local texture = GetItemIcon and GetItemIcon(194329)
+    minimapButton.icon:SetTexture(texture or ARCANE_FOCUS_ICON)
+end
+
+local function InstallMinimapButton()
+    if minimapButton or not Minimap then return end
+    ArcanaItemUpgradesDB = ArcanaItemUpgradesDB or {}
+
+    minimapButton = CreateFrame("Button", "ArcanaItemUpgradesMinimapButton", Minimap)
+    minimapButton:SetWidth(32)
+    minimapButton:SetHeight(32)
+    minimapButton:SetFrameStrata("MEDIUM")
+    minimapButton:SetFrameLevel(Minimap:GetFrameLevel() + 8)
+    minimapButton:RegisterForClicks("LeftButtonUp")
+    minimapButton:RegisterForDrag("LeftButton")
+
+    minimapButton.icon = minimapButton:CreateTexture(nil, "BACKGROUND")
+    minimapButton.icon:SetWidth(20)
+    minimapButton.icon:SetHeight(20)
+    minimapButton.icon:SetPoint("CENTER")
+    minimapButton.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    local border = minimapButton:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetWidth(54)
+    border:SetHeight(54)
+    border:SetPoint("TOPLEFT")
+
+    minimapButton:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    minimapButton:SetScript("OnClick", ToggleUpgradeFrame)
+    minimapButton:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", UpdateMinimapButtonFromCursor)
+    end)
+    minimapButton:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+    minimapButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Arcana Item Upgrades", 1, 0.82, 0)
+        GameTooltip:AddLine("Left-click to open.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    minimapButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    UpdateMinimapButtonIcon()
+    UpdateMinimapButtonPosition()
+end
 
 local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOP", 0, -18)
@@ -373,9 +453,7 @@ end
 
 upgradeButton:SetScript("OnClick", ShowSourceChooser)
 refresh:SetScript("OnClick", function()
-    state.syncing = true
-    status:SetText("Syncing with the realm...")
-    Send("CMD\tSYNC")
+    RequestSync(true)
 end)
 
 local function OrderedSlots()
@@ -437,13 +515,36 @@ scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function() frame:UpdateDisplay() end)
 end)
 
-local function RequestSync()
-    if not state.syncing then
+RequestSync = function(force)
+    if force or not state.syncing then
         state.syncing = true
+        state.syncRetryIndex = 1
+        state.syncRetryAt = GetTime() + SYNC_RETRY_DELAYS[1]
         status:SetText("Syncing with the realm...")
         Send("CMD\tSYNC")
     end
 end
+local function FinishSync()
+    state.syncing = false
+    state.syncRetryIndex = nil
+    state.syncRetryAt = nil
+end
+
+local function UpdateSyncRetry()
+    if not state.syncing or not state.syncRetryAt or GetTime() < state.syncRetryAt then return end
+    if state.syncRetryIndex >= #SYNC_RETRY_DELAYS then
+        FinishSync()
+        status:SetText("Unable to sync. Click Refresh to try again.")
+        return
+    end
+
+    Send("CMD\tSYNC")
+    state.syncRetryIndex = state.syncRetryIndex + 1
+    state.syncRetryAt = GetTime() + SYNC_RETRY_DELAYS[state.syncRetryIndex]
+end
+
+local RefreshVisibleTooltip
+
 
 frame:SetScript("OnShow", RequestSync)
 frame:SetScript("OnHide", function() sourceFrame:Hide() end)
@@ -451,6 +552,7 @@ frame:SetScript("OnHide", function() sourceFrame:Hide() end)
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -466,14 +568,18 @@ local function InstallCharacterButton()
     characterButton:SetHeight(22)
     characterButton:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -38, 84)
     characterButton:SetText("Item Upgrades")
-    characterButton:SetScript("OnClick", function()
-        if frame:IsShown() then frame:Hide() else frame:Show() end
-    end)
+    characterButton:SetScript("OnClick", ToggleUpgradeFrame)
 end
 
+eventFrame:SetScript("OnUpdate", function() UpdateSyncRetry() end)
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local addon = ...
+        if addon == "ArcanaItemUpgrades" then
+            ArcanaItemUpgradesDB = ArcanaItemUpgradesDB or {}
+            RegisterAddonMessagePrefix(PREFIX)
+            InstallMinimapButton()
+        end
         if addon == "ArcanaItemUpgrades" or addon == "Blizzard_CharacterUI" then
             InstallCharacterButton()
         end
@@ -482,7 +588,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         RegisterAddonMessagePrefix(PREFIX)
         InstallCharacterButton()
-        RequestSync()
+        InstallMinimapButton()
+        UpdateMinimapButtonIcon()
+        return
+    end
+    if event == "PLAYER_ENTERING_WORLD" then
+        RequestSync(true)
         return
     end
     if event == "CHAT_MSG_ADDON" then
@@ -537,22 +648,24 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     effectiveMin = tonumber(fields[6]), effectiveMax = tonumber(fields[7]) })
             end
         elseif fields[1] == "END" then
-            state.syncing = false
+            FinishSync()
             status:SetText("Up to date.")
             frame:UpdateDisplay()
+            UpdateMinimapButtonIcon()
+            if RefreshVisibleTooltip then RefreshVisibleTooltip() end
         elseif fields[1] == "RESULT" then
             status:SetText(fields[2] or "Upgrade complete.")
             DEFAULT_CHAT_FRAME:AddMessage("|cffb48cffArcana Upgrades:|r " ..
                 (fields[2] or "Upgrade complete."))
         elseif fields[1] == "ERROR" then
-            state.syncing = false
+            FinishSync()
             status:SetText(fields[2] or "The request was refused.")
             UIErrorsFrame:AddMessage(fields[2] or "The request was refused.", 1, 0.2, 0.2)
         end
         return
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
-        RequestSync()
+        RequestSync(true)
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or
         event == "ZONE_CHANGED_NEW_AREA" then
         if frame:IsShown() then frame:UpdateDisplay() end
@@ -580,6 +693,20 @@ local function AddUpgradeTooltip(tooltip, slot)
     end
     tooltip:Show()
 end
+RefreshVisibleTooltip = function()
+    if not GameTooltip:IsShown() then return end
+    local owner = GameTooltip:GetOwner()
+    local serverSlot = owner and owner.arcanaSlot
+    local ownerName = owner and owner.GetName and owner:GetName()
+    if not serverSlot and ownerName and string.find(ownerName, "^Character") and owner.GetID then
+        local inventorySlot = owner:GetID()
+        if inventorySlot then serverSlot = inventorySlot - 1 end
+    end
+    if serverSlot and state.slots[serverSlot] then
+        GameTooltip:SetInventoryItem("player", serverSlot + 1)
+    end
+end
+
 
 GameTooltip:HookScript("OnTooltipSetItem", function(tooltip)
     local _, link = tooltip:GetItem()
@@ -608,6 +735,4 @@ end)
 
 SLASH_ARCANAITEMUPGRADES1 = "/upgrades"
 SLASH_ARCANAITEMUPGRADES2 = "/itemupgrades"
-SlashCmdList["ARCANAITEMUPGRADES"] = function()
-    if frame:IsShown() then frame:Hide() else frame:Show() end
-end
+SlashCmdList["ARCANAITEMUPGRADES"] = ToggleUpgradeFrame

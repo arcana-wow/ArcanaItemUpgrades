@@ -5,6 +5,7 @@ item upgrade system.
 
 ## Features
 
+- Adds a draggable Arcane Focus minimap shortcut and saves its position.
 - Adds an **Item Upgrades** shortcut to the character sheet.
 - Lists eligible equipped items and their server-owned rank from 0/5 to 5/5.
 - Uses a bounded scrolling list that cannot overlap the footer at maximum
@@ -16,6 +17,8 @@ item upgrade system.
   token that jumps an item directly to 5/5.
 - Adds the rank and server-calculated effective stats, armor, resistances,
   block, and weapon damage to upgraded equipped-item tooltips.
+- Synchronizes automatically after entering the world and equipment changes,
+  with bounded retries so tooltips do not depend on opening the upgrade panel.
 - Supports `/upgrades` and `/itemupgrades`.
 
 The addon never calculates or writes a rank. It sends a request to the realm,
@@ -37,7 +40,7 @@ Interface/AddOns/ArcanaItemUpgrades/ArcanaItemUpgrades.toc
 ```
 
 Fully restart the client after first installation. Open the panel with the
-character-sheet button or `/upgrades`.
+minimap button, character-sheet button, or `/upgrades`.
 
 ## Compatibility
 
