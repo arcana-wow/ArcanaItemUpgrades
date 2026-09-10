@@ -9,9 +9,9 @@ item upgrade system.
 - Lists eligible equipped items and their server-owned rank from 0/5 to 5/5.
 - Uses a bounded scrolling list that cannot overlap the footer at maximum
   equipment capacity.
-- Provides one **Upgrade** button, followed by an exact choice between any
-  available Uncommon matching, Rare Wildcard, Epic matching, Epic Wildcard,
-  duplicate-item, and Legendary-token payment.
+- Provides one **Upgrade** button, followed by an exact choice between every
+  available payment item. Each choice shows the consumed item's full server
+  name, quality color, icon, count, and normal item tooltip.
 - Confirms every consumption, with a stronger confirmation for a Legendary
   token that jumps an item directly to 5/5.
 - Adds the rank and server-calculated effective stats, armor, resistances,
@@ -57,10 +57,11 @@ CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>UNCOMMON_MATCH|RARE_WILD|EPIC_MATCH|EPIC_
 ```
 
 Server replies are framed with `BEGIN` and `END`; each `SLOT` line contains the
-equipped entry, authoritative rank, family, and exact per-rarity payment
-counts. `STAT`, `VALUE`, and `DAMAGE` lines contain authoritative base and
-effective item values. `RESULT` and `ERROR` carry the player-facing outcome.
-The server consumes the control messages so they are never relayed as chat.
+equipped entry, authoritative rank, family, exact payment counts, and the item
+entry represented by each payment choice. `STAT`, `VALUE`, and `DAMAGE` lines
+contain authoritative base and effective item values. `RESULT` and `ERROR`
+carry the player-facing outcome. The server consumes the control messages so
+they are never relayed as chat.
 
 ## Repository and releases
 

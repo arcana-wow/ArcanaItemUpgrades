@@ -36,12 +36,18 @@ local VALUE_LABELS = {
 }
 
 local SOURCE_DEFINITIONS = {
-    { key = "UNCOMMON_MATCH", label = "Uncommon matching token", count = "uncommonMatching" },
-    { key = "RARE_WILD", label = "Rare Wildcard token", count = "rareWildcard" },
-    { key = "EPIC_MATCH", label = "Epic matching token", count = "epicMatching" },
-    { key = "EPIC_WILD", label = "Epic Wildcard token", count = "epicWildcard" },
-    { key = "DUP", label = "Duplicate item", count = "duplicate" },
-    { key = "LEGEND", label = "Legendary token", count = "legendary", legendary = true },
+    { key = "UNCOMMON_MATCH", count = "uncommonMatching", entry = "uncommonEntry" },
+    { key = "RARE_WILD", count = "rareWildcard", entry = "rareWildcardEntry" },
+    { key = "EPIC_MATCH", count = "epicMatching", entry = "epicEntry" },
+    { key = "EPIC_WILD", count = "epicWildcard", entry = "epicWildcardEntry" },
+    { key = "DUP", count = "duplicate", entry = "duplicateEntry" },
+    { key = "LEGEND", count = "legendary", entry = "legendaryEntry", legendary = true },
+}
+
+local FAMILY_INDEX = {
+    Helm = 0, Neck = 1, Shoulders = 2, Cloak = 3, Chest = 4, Wrist = 5,
+    Hands = 6, Waist = 7, Legs = 8, Feet = 9, Ring = 10, Trinket = 11,
+    Weapon = 12, ["Off-hand"] = 13, Wildcard = 14,
 }
 
 local function Split(value)
@@ -196,7 +202,7 @@ upgradeButton:SetPoint("BOTTOM", 0, 23)
 upgradeButton:SetText("Upgrade")
 
 local sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
-sourceFrame:SetWidth(360)
+sourceFrame:SetWidth(400)
 sourceFrame:SetHeight(280)
 sourceFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
 sourceFrame:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -214,7 +220,7 @@ sourceTitle:SetText("Choose Upgrade Source")
 
 local sourceSubtitle = sourceFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 sourceSubtitle:SetPoint("TOP", sourceTitle, "BOTTOM", 0, -8)
-sourceSubtitle:SetWidth(310)
+sourceSubtitle:SetWidth(350)
 sourceSubtitle:SetText("Select exactly which item will be consumed.")
 
 local sourceClose = CreateFrame("Button", nil, sourceFrame, "UIPanelCloseButton")
@@ -224,9 +230,27 @@ sourceClose:SetScript("OnClick", function() sourceFrame:Hide() end)
 local sourceButtons = {}
 for index = 1, #SOURCE_DEFINITIONS do
     local button = CreateFrame("Button", nil, sourceFrame, "UIPanelButtonTemplate")
-    button:SetWidth(300)
+    button:SetWidth(350)
     button:SetHeight(25)
     button:SetPoint("TOP", 0, -65 - ((index - 1) * 30))
+    button:SetText("")
+
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetWidth(20)
+    button.icon:SetHeight(20)
+    button.icon:SetPoint("LEFT", 8, 0)
+
+    button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    button.label:SetPoint("LEFT", button.icon, "RIGHT", 7, 0)
+    button.label:SetPoint("RIGHT", -8, 0)
+    button.label:SetJustifyH("LEFT")
+
+    button:SetScript("OnEnter", function(self)
+        if not self.arcanaEntry then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetHyperlink("item:" .. self.arcanaEntry .. ":0:0:0:0:0:0:0")
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     button:Hide()
     sourceButtons[index] = button
 end
@@ -248,7 +272,7 @@ StaticPopupDialogs["ARCANA_ITEM_UPGRADE_CONFIRM"] = {
 }
 
 StaticPopupDialogs["ARCANA_ITEM_UPGRADE_LEGENDARY_CONFIRM"] = {
-    text = "This permanently consumes a Legendary token and sets %s directly to 5/5. Continue?",
+    text = "This permanently consumes %s and sets %s directly to 5/5. Continue?",
     button1 = ACCEPT,
     button2 = CANCEL,
     OnAccept = function(self, data)
@@ -274,13 +298,45 @@ local function AvailableSources(slot)
     return available
 end
 
-local function ConfirmSource(slot, definition)
+local function FallbackSourceName(slot, definition)
+    local family = slot.family == "Off-hand" and "Off-Hand" or slot.family
+    if definition.key == "UNCOMMON_MATCH" then return "Arcana " .. family .. " Sigil" end
+    if definition.key == "RARE_WILD" then return "Arcana Wildcard Sigil" end
+    if definition.key == "EPIC_MATCH" then return "Enduring Arcana " .. family .. " Sigil" end
+    if definition.key == "EPIC_WILD" then return "Enduring Arcana Wildcard Sigil" end
+    if definition.key == "LEGEND" then return "Arcana Sigil of Perfection" end
+    return slot.itemName or "Duplicate item"
+end
+
+local function FallbackSourceEntry(slot, definition)
+    local familyIndex = FAMILY_INDEX[slot.family]
+    if definition.key == "UNCOMMON_MATCH" and familyIndex then return 194300 + familyIndex end
+    if definition.key == "RARE_WILD" then return 194329 end
+    if definition.key == "EPIC_MATCH" and familyIndex then return 194330 + familyIndex end
+    if definition.key == "EPIC_WILD" then return 194344 end
+    if definition.key == "DUP" then return slot.entry end
+    if definition.key == "LEGEND" then return 194345 end
+end
+
+local function ResolveSourceItem(slot, definition)
+    local entry = tonumber(slot[definition.entry]) or FallbackSourceEntry(slot, definition)
+    local name, quality, texture
+    if entry then
+        name, _, quality, _, _, _, _, _, _, texture = GetItemInfo(entry)
+        if not texture and GetItemIcon then texture = GetItemIcon(entry) end
+    end
+    return entry, name or FallbackSourceName(slot, definition), quality,
+        texture or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+local function ConfirmSource(slot, definition, sourceName)
     sourceFrame:Hide()
     local data = { slot = slot.slot, payment = definition.key }
     if definition.legendary then
-        StaticPopup_Show("ARCANA_ITEM_UPGRADE_LEGENDARY_CONFIRM", slot.name or "this item", nil, data)
+        StaticPopup_Show("ARCANA_ITEM_UPGRADE_LEGENDARY_CONFIRM", sourceName,
+            slot.name or "this item", data)
     else
-        StaticPopup_Show("ARCANA_ITEM_UPGRADE_CONFIRM", definition.label,
+        StaticPopup_Show("ARCANA_ITEM_UPGRADE_CONFIRM", sourceName,
             slot.name or "this item", data)
     end
 end
@@ -292,10 +348,22 @@ local function ShowSourceChooser()
     for index, button in ipairs(sourceButtons) do
         local definition = available[index]
         if definition then
-            button:SetText(definition.label .. " (" .. (slot[definition.count] or 0) .. ")")
-            button:SetScript("OnClick", function() ConfirmSource(slot, definition) end)
+            local entry, sourceName, quality, texture = ResolveSourceItem(slot, definition)
+            button.arcanaEntry = entry
+            button.icon:SetTexture(texture)
+            button.label:SetText(sourceName .. " (" .. (slot[definition.count] or 0) .. ")")
+            if quality then
+                local red, green, blue = GetItemQualityColor(quality)
+                button.label:SetTextColor(red, green, blue)
+            else
+                button.label:SetTextColor(1, 0.82, 0)
+            end
+            local chosenDefinition = definition
+            local chosenName = sourceName
+            button:SetScript("OnClick", function() ConfirmSource(slot, chosenDefinition, chosenName) end)
             button:Show()
         else
+            button.arcanaEntry = nil
             button:Hide()
         end
     end
@@ -329,8 +397,10 @@ function frame:UpdateDisplay()
         if slot then
             local inventorySlot = slot.slot + 1
             local link = GetInventoryItemLink("player", inventorySlot)
+            local itemName = GetItemInfo(slot.entry)
             slot.link = link
-            slot.name = link or ("Item " .. slot.entry)
+            slot.itemName = itemName or (link and string.match(link, "%[(.-)%]")) or ("Item " .. slot.entry)
+            slot.name = link or slot.itemName
             row.arcanaSlot = slot.slot
             row.icon:SetTexture(GetInventoryItemTexture("player", inventorySlot))
             row.name:SetText(slot.name)
@@ -435,6 +505,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     epicWildcard = tonumber(fields[9]) or 0,
                     duplicate = tonumber(fields[10]) or 0,
                     legendary = tonumber(fields[11]) or 0,
+                    uncommonEntry = tonumber(fields[12]),
+                    rareWildcardEntry = tonumber(fields[13]),
+                    epicEntry = tonumber(fields[14]),
+                    epicWildcardEntry = tonumber(fields[15]),
+                    duplicateEntry = tonumber(fields[16]),
+                    legendaryEntry = tonumber(fields[17]),
                     values = {},
                 }
             end
