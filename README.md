@@ -19,8 +19,9 @@ item upgrade system.
   an open chooser follows selection changes.
 - Confirms every consumption, with a stronger confirmation for a Legendary
   token that jumps an item directly to 5/5.
-- Adds the rank and server-calculated effective stats, resistances,
-  block, and weapon damage to upgraded equipped-item tooltips.
+- Adds the rank, distinct stat and armor bonuses, and server-calculated
+  effective armor, stats, resistances, block, and weapon damage to upgraded
+  equipped-item tooltips.
 - Synchronizes automatically after entering the world, equipment changes, and
   successful addon or NPC upgrades, with bounded retries so tooltips do not
   depend on opening the upgrade panel.
@@ -64,9 +65,11 @@ CMD<TAB>SYNC
 CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>UNCOMMON_MATCH|RARE_WILD|EPIC_MATCH|EPIC_WILD|DUP|LEGEND
 ```
 
-Server replies are framed with `BEGIN` and `END`; each `SLOT` line contains the
-equipped entry, authoritative rank, family, exact payment counts, and the item
-entry represented by each payment choice. `STAT`, `VALUE`, and `DAMAGE` lines
+Server replies are framed with `BEGIN` and `END`; `BEGIN` carries the maximum
+rank plus the distinct general-stat and armor percentages per rank. Each `SLOT`
+line contains the equipped entry, authoritative rank, family, exact payment
+counts, and the item entry represented by each payment choice. `STAT`, `VALUE`,
+and `DAMAGE` lines
 contain authoritative base and effective item values. `RESULT` and `ERROR`
 carry the player-facing outcome. The server consumes the control messages so
 they are never relayed as chat.

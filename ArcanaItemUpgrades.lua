@@ -10,6 +10,7 @@ local state = {
     selected = nil,
     maxRank = 5,
     percent = 5,
+    armorPercent = 2,
     syncing = false,
     syncRetryIndex = nil,
     syncRetryAt = nil,
@@ -503,8 +504,7 @@ function frame:UpdateDisplay()
             row.arcanaSlot = slot.slot
             row.icon:SetTexture(GetInventoryItemTexture("player", inventorySlot))
             row.name:SetText(slot.name)
-            row.rank:SetText(string.format("%d/%d  (+%d%%)", slot.rank, state.maxRank,
-                slot.rank * state.percent))
+            row.rank:SetText(string.format("%d/%d", slot.rank, state.maxRank))
             if state.selected == slot.slot then row:LockHighlight() else row:UnlockHighlight() end
             row:Show()
         else
@@ -517,8 +517,7 @@ function frame:UpdateDisplay()
     local allowed, reason = IsRemoteLocationAllowed()
     if selected then
         selectedText:SetText((selected.name or "Selected item") .. " — " ..
-            string.format("%d/%d (+%d%%)", selected.rank, state.maxRank,
-                selected.rank * state.percent))
+            string.format("%d/%d", selected.rank, state.maxRank))
     else
         selectedText:SetText("No eligible equipped items were reported by the realm.")
     end
@@ -629,6 +628,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             state.slots = {}
             state.maxRank = tonumber(fields[2]) or 5
             state.percent = tonumber(fields[3]) or 5
+            state.armorPercent = tonumber(fields[4]) or 2
         elseif fields[1] == "SLOT" then
             local slot = tonumber(fields[2])
             if slot then
@@ -699,8 +699,11 @@ end)
 
 local function AddUpgradeTooltip(tooltip, slot)
     if not slot then return end
-    tooltip:AddLine(string.format("Arcana Upgrade: %d/%d (+%d%%)", slot.rank,
-        state.maxRank, slot.rank * state.percent), 0.71, 0.55, 1)
+    tooltip:AddLine(string.format("Arcana Upgrade: %d/%d", slot.rank,
+        state.maxRank), 0.71, 0.55, 1)
+    tooltip:AddLine(string.format("Stat bonus: +%d%%", slot.rank * state.percent), 0.4, 1, 0.4)
+    tooltip:AddLine(string.format("Armor bonus: +%d%%", slot.rank * state.armorPercent),
+        0.4, 1, 0.4)
     if slot.rank > 0 and slot.values and #slot.values > 0 then
         tooltip:AddLine("Effective item values:", 0.96, 0.82, 0.25)
         for _, value in ipairs(slot.values) do
