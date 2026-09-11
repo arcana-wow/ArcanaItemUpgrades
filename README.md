@@ -5,12 +5,26 @@ item upgrade system.
 
 ## Features
 
-- Adds an **Item Upgrades** shortcut to the character sheet.
+- Adds a draggable Arcane Focus minimap shortcut and saves its position.
+- Uses a 3.3.5a-compatible addon-message initialization path and retries
+  minimap-button installation after entering the world.
+- Adds a compact, top-layer **Upgrades** shortcut to the character sheet.
 - Lists eligible equipped items and their server-owned rank from 0/5 to 5/5.
-- Shows matching-token, wildcard-token, duplicate, and Legendary-token counts.
+- Uses a bounded scrolling list that cannot overlap the footer at maximum
+  equipment capacity.
+- Provides one **Upgrade** button, followed by an exact choice between every
+  available payment item. Each choice shows the consumed item's full server
+  name, quality color, icon, count, and normal item tooltip. The always-visible
+  icon and full source name are centered together within the choice button, and
+  an open chooser follows selection changes.
 - Confirms every consumption, with a stronger confirmation for a Legendary
   token that jumps an item directly to 5/5.
-- Adds `Arcana Upgrade: 3/5 (+15%)` to equipped-item tooltips.
+- Adds the rank, distinct stat and armor bonuses, and server-calculated
+  effective armor, stats, resistances, block, and weapon damage to upgraded
+  equipped-item tooltips.
+- Synchronizes automatically after entering the world, equipment changes, and
+  successful addon or NPC upgrades, with bounded retries so tooltips do not
+  depend on opening the upgrade panel.
 - Supports `/upgrades` and `/itemupgrades`.
 
 The addon never calculates or writes a rank. It sends a request to the realm,
@@ -32,7 +46,7 @@ Interface/AddOns/ArcanaItemUpgrades/ArcanaItemUpgrades.toc
 ```
 
 Fully restart the client after first installation. Open the panel with the
-character-sheet button or `/upgrades`.
+minimap button, character-sheet button, or `/upgrades`.
 
 ## Compatibility
 
@@ -48,13 +62,17 @@ Client requests:
 
 ```text
 CMD<TAB>SYNC
-CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>MATCH|WILD|DUP|LEGEND
+CMD<TAB>UPGRADE<TAB>equipment-slot<TAB>UNCOMMON_MATCH|RARE_WILD|EPIC_MATCH|EPIC_WILD|DUP|LEGEND
 ```
 
-Server replies are framed with `BEGIN` and `END`; each `SLOT` line contains the
-equipped entry, authoritative rank, family, and available payment counts.
-`RESULT` and `ERROR` carry the player-facing outcome. The server consumes the
-control messages so they are never relayed as chat.
+Server replies are framed with `BEGIN` and `END`; `BEGIN` carries the maximum
+rank plus the distinct general-stat and armor percentages per rank. Each `SLOT`
+line contains the equipped entry, authoritative rank, family, exact payment
+counts, and the item entry represented by each payment choice. `STAT`, `VALUE`,
+and `DAMAGE` lines
+contain authoritative base and effective item values. `RESULT` and `ERROR`
+carry the player-facing outcome. The server consumes the control messages so
+they are never relayed as chat.
 
 ## Repository and releases
 
