@@ -237,6 +237,8 @@ scrollFrame:SetPoint("TOPLEFT", 4, -7)
 scrollFrame:SetPoint("BOTTOMRIGHT", -27, 7)
 
 local rows = {}
+local sourceFrame
+local ShowSourceChooser
 for index = 1, VISIBLE_ROWS do
     local row = CreateFrame("Button", nil, list)
     row:SetHeight(ROW_HEIGHT)
@@ -260,8 +262,12 @@ for index = 1, VISIBLE_ROWS do
     row.rank:SetJustifyH("RIGHT")
 
     row:SetScript("OnClick", function(self)
+        local chooserWasOpen = sourceFrame and sourceFrame:IsShown()
         state.selected = self.arcanaSlot
         frame:UpdateDisplay()
+        if chooserWasOpen and sourceFrame:IsShown() and ShowSourceChooser then
+            ShowSourceChooser()
+        end
     end)
     row:SetScript("OnEnter", function(self)
         if not self.arcanaSlot then return end
@@ -289,7 +295,7 @@ upgradeButton:SetHeight(26)
 upgradeButton:SetPoint("BOTTOM", 0, 23)
 upgradeButton:SetText("Upgrade")
 
-local sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
+sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
 sourceFrame:SetWidth(400)
 sourceFrame:SetHeight(280)
 sourceFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -323,7 +329,7 @@ for index = 1, #SOURCE_DEFINITIONS do
     button:SetPoint("TOP", 0, -65 - ((index - 1) * 30))
     button:SetText("")
 
-    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon = button:CreateTexture(nil, "OVERLAY")
     button.icon:SetWidth(20)
     button.icon:SetHeight(20)
     button.icon:SetPoint("LEFT", 8, 0)
@@ -429,7 +435,7 @@ local function ConfirmSource(slot, definition, sourceName)
     end
 end
 
-local function ShowSourceChooser()
+ShowSourceChooser = function()
     local slot = state.slots[state.selected]
     if not slot then return end
     local available = AvailableSources(slot)
@@ -579,10 +585,12 @@ local function InstallCharacterButton()
     if characterButton or not CharacterFrame then return end
     characterButton = CreateFrame("Button", "ArcanaItemUpgradesCharacterButton",
         CharacterFrame, "UIPanelButtonTemplate")
-    characterButton:SetWidth(112)
-    characterButton:SetHeight(22)
-    characterButton:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -38, 84)
-    characterButton:SetText("Item Upgrades")
+    characterButton:SetWidth(82)
+    characterButton:SetHeight(20)
+    characterButton:SetPoint("TOPRIGHT", CharacterFrame, "TOPRIGHT", -42, -39)
+    characterButton:SetFrameLevel(CharacterFrame:GetFrameLevel() + 10)
+    characterButton:EnableMouse(true)
+    characterButton:SetText("Upgrades")
     characterButton:SetScript("OnClick", ToggleUpgradeFrame)
 end
 
