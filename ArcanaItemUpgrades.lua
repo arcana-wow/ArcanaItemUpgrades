@@ -293,7 +293,7 @@ locationText:SetJustifyH("LEFT")
 local upgradeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 upgradeButton:SetWidth(160)
 upgradeButton:SetHeight(26)
-upgradeButton:SetPoint("BOTTOM", 0, 23)
+upgradeButton:SetPoint("BOTTOMLEFT", 75, 23)
 upgradeButton:SetText("Upgrade")
 
 sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
@@ -478,16 +478,31 @@ refresh:SetScript("OnClick", function()
     RequestSync(true)
 end)
 
+local function SelectedSlot(slot)
+    return state.slots[slot] or (frame.affixSlots and frame.affixSlots[slot])
+end
+
+function frame:SetAffixSlots(slots)
+    self.affixSlots = {}
+    for slot, row in pairs(slots) do
+        if row.packed ~= 0 then self.affixSlots[slot] = {slot=slot, entry=row.entry, affixOnly=true} end
+    end
+    self:UpdateDisplay()
+end
+
 local function OrderedSlots()
     local ordered = {}
     for _, slot in pairs(state.slots) do table.insert(ordered, slot) end
+    for id, slot in pairs(frame.affixSlots or {}) do
+        if not state.slots[id] then table.insert(ordered, slot) end
+    end
     table.sort(ordered, function(a, b) return a.slot < b.slot end)
     return ordered
 end
 
 function frame:UpdateDisplay()
     local ordered = OrderedSlots()
-    if state.selected and not state.slots[state.selected] then state.selected = nil end
+    if state.selected and not SelectedSlot(state.selected) then state.selected = nil end
     if not state.selected and ordered[1] then state.selected = ordered[1].slot end
 
     FauxScrollFrame_Update(scrollFrame, #ordered, VISIBLE_ROWS, ROW_HEIGHT)
@@ -504,7 +519,7 @@ function frame:UpdateDisplay()
             row.arcanaSlot = slot.slot
             row.icon:SetTexture(GetInventoryItemTexture("player", inventorySlot))
             row.name:SetText(slot.name)
-            row.rank:SetText(string.format("%d/%d", slot.rank, state.maxRank))
+            row.rank:SetText(slot.affixOnly and "Recalibration" or string.format("%d/%d", slot.rank, state.maxRank))
             if state.selected == slot.slot then row:LockHighlight() else row:UnlockHighlight() end
             row:Show()
         else
@@ -513,11 +528,11 @@ function frame:UpdateDisplay()
         end
     end
 
-    local selected = state.slots[state.selected]
+    local selected = SelectedSlot(state.selected)
     local allowed, reason = IsRemoteLocationAllowed()
     if selected then
         selectedText:SetText((selected.name or "Selected item") .. " — " ..
-            string.format("%d/%d", selected.rank, state.maxRank))
+            (selected.affixOnly and "Recalibration" or string.format("%d/%d", selected.rank, state.maxRank)))
     else
         selectedText:SetText("No eligible equipped items were reported by the realm.")
     end
@@ -525,7 +540,7 @@ function frame:UpdateDisplay()
         "Remote upgrading is available here. The Item Upgrader NPC remains available in major cities." or reason)
     locationText:SetTextColor(allowed and 0.4 or 1, allowed and 1 or 0.35, 0.35)
 
-    local canUpgrade = selected and selected.rank < state.maxRank and
+    local canUpgrade = selected and not selected.affixOnly and selected.rank < state.maxRank and
         #AvailableSources(selected) > 0 and allowed
     if canUpgrade then upgradeButton:Enable() else upgradeButton:Disable() end
     if not canUpgrade then sourceFrame:Hide() end
@@ -764,3 +779,5 @@ end)
 SLASH_ARCANAITEMUPGRADES1 = "/upgrades"
 SLASH_ARCANAITEMUPGRADES2 = "/itemupgrades"
 SlashCmdList["ARCANAITEMUPGRADES"] = ToggleUpgradeFrame
+
+function frame:GetSelectedEquipmentSlot() return state.selected end

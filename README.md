@@ -85,3 +85,23 @@ GitHub organization. Tagged release archives must contain one top-level
 The UI is convenience only. Editing Lua state or crafting addon messages does
 not bypass server checks. The module is the sole authority for ranks, token
 ownership, token expiry, eligible slots, and payment consumption.
+
+## Arcana bonuses and recalibration (1.6)
+
+The equipment panel includes a Recalibrate button for the separate random
+bonus, including bonus-eligible relics with no native upgradable stats. A
+confirmation captures the exact equipped item and its bonus revision. The
+server consumes one permanent Arcana Recalibration Sigil after committing the
+replacement. The next stat is different and its amount may be lower.
+
+The AAF self-whisper protocol supplies per-instance bonuses for bags,
+equipment, bank, buyback, trade, inspection, loot, rolls, mail and auctions.
+Tooltip replies are bound to a request and discarded when the tooltip changes
+or the request expires. Snapshots accompany the corresponding native response.
+
+The stock auction API cannot distinguish listings with identical native item
+links, seller and prices. If their bonuses differ, the addon displays an
+ambiguity message rather than another listing's bonus.
+
+Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
+this repository. Actual client rendering requires an in-game check.
