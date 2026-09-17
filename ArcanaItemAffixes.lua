@@ -1,6 +1,7 @@
 local P = ArcanaAffixProtocol
 local state = P.New()
 local snapshots, rolls = {}, {}
+local snapshotWaiting = {}
 local pending, sequence = {}, 0
 local frame = ArcanaItemUpgradesFrame
 local ready, paying, refreshAt = false, false, nil
@@ -16,7 +17,7 @@ end
 -- A tooltip rebuild clears its font strings even when the hovered item has not
 -- changed. Keep the resolved instance separate from the currently drawn line.
 local epochs = { B=0, E=0, T=0, Y=0, I=0 }
-local equipmentFresh = false
+local equipmentFresh, bagsFresh = false, false
 local refreshTooltip = false
 local function CurrentLink(tooltip)
     local _, link = tooltip:GetItem()
@@ -50,9 +51,16 @@ local function IsFooter(text)
     end
     return false
 end
-local function AddLine(tooltip, row)
-    local text = row and P.Describe(row.packed)
-    if not text then RemoveLine(tooltip); return end
+local function PermanentEnchant(link)
+    local enchant = type(link) == "string" and tonumber(link:match("item:%d+:(%-?%d+):"))
+    return enchant and enchant > 0
+end
+local function Green(font)
+    if not font or not font:GetText() then return false end
+    local r, g, b = font:GetTextColor()
+    return r and r < 0.2 and g and g > 0.8 and b and b < 0.2
+end
+local function RenderLine(tooltip, text)
     local old = tooltip.arcanaAffixLine
     if old and old.text == text and old.font:GetText() == old.rendered then return end
     RemoveLine(tooltip)
@@ -76,16 +84,34 @@ local function AddLine(tooltip, row)
         local font = _G[name .. "TextLeft" .. i]
         if font and IsFooter(Plain(font:GetText())) then anchor = math.min(anchor, i - 1); break end
     end
-    local font = _G[name .. "TextLeft" .. anchor]
+    local font
+    if PermanentEnchant(CurrentLink(tooltip)) then
+        for i = 2, anchor do
+            local candidate = _G[name .. "TextLeft" .. i]
+            if Green(candidate) then font = candidate; break end
+        end
+    end
+    local before = font ~= nil
+    font = font or _G[name .. "TextLeft" .. anchor]
     if not font then return end
     local original = font:GetText() or ""
-    -- Extend the preceding left-hand row instead of copying/reordering native
-    -- rows. Right-hand prices, wrapped set text, socket icons and font styling
-    -- retain their original font strings and anchors.
-    local rendered = original .. "\n|cff00ff00" .. text .. "|r"
+    -- Extend one native left-hand row instead of copying/reordering tooltip
+    -- regions. Permanent enchants retain their own row directly below Arcana.
+    local bonus = text and ("|cff00ff00" .. text .. "|r") or "|c00000000 |r"
+    local rendered = before and (bonus .. "\n" .. original) or (original .. "\n" .. bonus)
     font:SetText(rendered)
     tooltip.arcanaAffixLine = { font=font, original=original, rendered=rendered, text=text }
     tooltip:Show()
+end
+local function AddLine(tooltip, row)
+    local text = row and P.Describe(row.packed)
+    if not text then RemoveLine(tooltip); return end
+    RenderLine(tooltip, text)
+end
+local function ReserveLine(tooltip)
+    if type(GetItemInfo) ~= "function" then return end
+    local _, _, quality, _, _, _, _, _, equip = GetItemInfo(CurrentLink(tooltip))
+    if quality and quality >= 3 and quality <= 5 and equip and equip ~= "" then RenderLine(tooltip, nil) end
 end
 local function CancelRequest(view)
     if view and view.request then pending[view.request] = nil; view.request = nil end
@@ -109,11 +135,23 @@ local function Query(tooltip, context, first, second)
         local row = state.slots[first - 1]
         if P.Matches(row, link) then view.row = row; CancelRequest(view) end
     end
+    if context == "B" and bagsFresh then
+        local row = state.bags[P.BagKey(first, second) or ""]
+        if P.Matches(row, link) then
+            view.row, view.known = row, true
+            CancelRequest(view)
+        elseif not row then
+            view.known = true
+            CancelRequest(view)
+        end
+    end
     if view.row then AddLine(tooltip, view.row) end
+    if view.known then return end
     -- Inspection has no reliable local inventory-change notification for the
     -- other player. Revalidate in the background without hiding the last reply.
     if view.row and (context ~= "I" or GetTime() < view.validUntil) then return end
     if view.retryAt and GetTime() < view.retryAt then return end
+    if context == "B" then ReserveLine(tooltip) end
     if view.request and pending[view.request] then return end
     sequence = sequence + 1
     view.request, view.expires = sequence, GetTime() + 5
@@ -123,6 +161,7 @@ end
 local function Invalidate(context)
     epochs[context] = epochs[context] + 1
     if context == "E" then equipmentFresh = false end
+    if context == "B" then bagsFresh = false end
     local tooltip = GameTooltip
     local view = tooltip.arcanaAffixCache
     if view and view.context == context then
@@ -142,8 +181,20 @@ local function RefreshTooltip()
     end
 end
 local function SnapshotTooltip(tooltip, context, index)
+    local link = CurrentLink(tooltip)
+    tooltip.arcanaAffixSnapshot = { context=context, index=index, link=link }
     local row = snapshots[context] and snapshots[context][index]
-    if P.Matches(row, CurrentLink(tooltip)) then AddLine(tooltip, row) end
+    if P.Matches(row, link) then AddLine(tooltip, row)
+    elseif snapshotWaiting[context] then ReserveLine(tooltip) end
+end
+local function PublishSnapshot(context)
+    local rows, available = P.Take(state, context)
+    if not available then snapshotWaiting[context] = true; return end
+    snapshots[context], snapshotWaiting[context] = rows, nil
+    local tooltip, view = GameTooltip, GameTooltip.arcanaAffixSnapshot
+    if view and view.context == context and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
+        SnapshotTooltip(tooltip, view.context, view.index)
+    end
 end
 
 local bonusText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -185,11 +236,11 @@ frame:HookScript("OnShow", Sync)
 
 local function HookTooltip(tooltip)
     tooltip:HookScript("OnTooltipCleared", function(self)
-        self.arcanaAffixLine, self.arcanaAffixView = nil, nil
+        self.arcanaAffixLine, self.arcanaAffixView, self.arcanaAffixSnapshot = nil, nil, nil
     end)
     tooltip:HookScript("OnHide", function(self)
         CancelRequest(self.arcanaAffixCache)
-        self.arcanaAffixCache, self.arcanaAffixView = nil, nil
+        self.arcanaAffixCache, self.arcanaAffixView, self.arcanaAffixSnapshot = nil, nil, nil
         RemoveLine(self)
     end)
     hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) Query(self, "B", bag, slot) end)
@@ -250,11 +301,11 @@ events:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = ...
         if prefix ~= "AAF" or channel ~= "WHISPER" or sender ~= UnitName("player") then return end
-        local f = P.Receive(state, message)
+        local f, completedContext = P.Receive(state, message)
         if f[1] == "SYNC" then
             Invalidate("E")
         elseif f[1] == "DONE" then
-            equipmentFresh, ready = true, true
+            equipmentFresh, bagsFresh, ready = true, true, true
             frame:SetAffixSlots(state.slots); RefreshControls(); RefreshTooltip()
         elseif f[1] == "RESULT" then
             paying = false
@@ -281,19 +332,30 @@ events:SetScript("OnEvent", function(self, event, ...)
                 end
             end
         end
+        if completedContext ~= nil and snapshotWaiting[completedContext] then
+            PublishSnapshot(completedContext)
+        end
     elseif contextEvents[event] ~= nil then
         local context = contextEvents[event]
-        snapshots[context] = P.Take(state, context)
+        PublishSnapshot(context)
     elseif event == "START_LOOT_ROLL" then
         local roll = ...
         local rows = P.Take(state, 1)
         if P.Matches(rows[0], GetLootRollItemLink(roll)) then rolls[roll] = rows[0] end
     elseif event == "CANCEL_LOOT_ROLL" then rolls[(...)] = nil
-    elseif event == "LOOT_CLOSED" then snapshots[0] = nil
+    elseif event == "LOOT_CLOSED" then
+        snapshots[0], snapshotWaiting[0] = nil, nil
+        P.ClearContext(state, 0)
     elseif event == "LOOT_SLOT_CLEARED" then
         if snapshots[0] then snapshots[0][(...)] = nil end
-    elseif event == "MAIL_CLOSED" then snapshots[5] = nil
-    elseif event == "AUCTION_HOUSE_CLOSED" then snapshots[2], snapshots[3], snapshots[4] = nil, nil, nil
+    elseif event == "MAIL_CLOSED" then
+        snapshots[5], snapshotWaiting[5] = nil, nil
+        P.ClearContext(state, 5)
+    elseif event == "AUCTION_HOUSE_CLOSED" then
+        for context = 2, 4 do
+            snapshots[context], snapshotWaiting[context] = nil, nil
+            P.ClearContext(state, context)
+        end
     else
         refreshAt = GetTime() + 0.2
         RefreshControls()

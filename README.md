@@ -96,19 +96,25 @@ replacement. The next stat is different and its amount may be lower.
 
 The AAF self-whisper protocol supplies per-instance bonuses for bags,
 equipment, bank, buyback, trade, inspection, loot, rolls, mail and auctions.
-Bonuses appear as green `+N Stat` text in the enchant area, below existing
-native enchants and before sockets, durability or requirements. The renderer
+Bonuses appear as green `+N Stat` text in the enchant area, immediately above
+a permanent native enchant when present and before sockets, durability or
+requirements. The renderer
 extends a native left-hand text row; existing right-hand prices, wrapped set
 text and socket font strings retain their contents and anchors.
 
 An unchanged hover reuses its resolved bonus through native tooltip rebuilds.
-Equipment can also use the current authoritative equipment snapshot. Other
-items are cached only for the exact tooltip context and slot, never by item
-entry or link alone. Inventory, equipment, bank, buyback and trade events
+Equipment, bags and bank slots use one current authoritative synchronization.
+If a newly moved bag item is hovered before that synchronization completes, an
+invisible reserved line prevents the tooltip from changing height while its
+exact instance reply arrives. Other items are cached only for the exact tooltip
+context and slot, never by item entry or link alone. Inventory, equipment, bank,
+buyback and trade events
 invalidate those contexts; rerolls refresh an open tooltip. In-flight requests
 are deduplicated, expire after five seconds and reject replies for replaced or
 hidden tooltips. Inspection revalidates after one second while retaining the
-previous reply during the request. Snapshots accompany the corresponding native response.
+previous reply during the request. Snapshot publication is order-independent:
+a complete loot, mail or auction snapshot is paired with its native window
+whether the addon message or the native UI event arrives first.
 
 The stock auction API cannot distinguish listings with identical native item
 links, seller and prices. If their bonuses differ, the addon displays an
@@ -117,13 +123,15 @@ ambiguity message rather than another listing's bonus.
 Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
 this repository. Actual client rendering requires an in-game check.
 
-### Tooltip regression checks (1.6.1)
+### Tooltip regression checks (1.6.2)
 
 CI runs the protocol and UI suites under Lua 5.1 and includes all three Lua
 files in the install archive. The UI model clears and rebuilds native tooltip
 font strings on every `Set*` call. It covers enchant placement, repeated
 rebuilds, same-link items in different slots, inventory invalidation, rerolls,
 stale/duplicate/expired replies, request deduplication, inspection, snapshots,
-localized boundaries, socket anchors, and native/third-party text preservation.
+localized boundaries, socket anchors, permanent-enchant ordering, synchronized
+bag and bank bonuses, late loot completion, closed-context rejection, paged
+duplicate loot items, and native/third-party text preservation.
 Actual tooltip sizing and interaction with installed addons still require an
 in-game check. Restart the client after installing an update.

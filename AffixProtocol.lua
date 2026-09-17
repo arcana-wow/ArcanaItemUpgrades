@@ -14,6 +14,14 @@ function P.UInt(value)
     local n = tonumber(value)
     if n and n >= 0 and n <= 4294967295 and n == math.floor(n) then return n end
 end
+function P.Bag(value)
+    local n = tonumber(value)
+    if n and n >= -1 and n <= 11 and n == math.floor(n) then return n end
+end
+function P.BagKey(bag, slot)
+    bag, slot = P.Bag(bag), P.UInt(slot)
+    if bag and slot and slot >= 1 and slot <= 36 then return bag .. ":" .. slot end
+end
 function P.Entry(link)
     return type(link) == "string" and tonumber(string.match(link, "item:(%d+):")) or nil
 end
@@ -30,10 +38,11 @@ function P.Row(fields, offset)
     if row.entry and row.guid and row.packed and row.revision then return row end
 end
 function P.New()
-    return { building={}, queues={}, slots={}, syncSlots=nil }
+    return { building={}, queues={}, slots={}, bags={}, syncSlots=nil, syncBags=nil }
 end
 function P.Receive(state, message)
     local f = P.Split(message)
+    local completedContext
     if f[1] == "BEGIN" then
         local context, sequence = P.UInt(f[2]), P.UInt(f[3])
         if context and context <= 5 and sequence then
@@ -60,20 +69,32 @@ function P.Receive(state, message)
             state.queues[snapshot.context] = queue
             queue[#queue+1] = snapshot.rows
             if #queue > 64 then table.remove(queue, 1) end
+            completedContext = snapshot.context
         end
     elseif f[1] == "SYNC" then
-        state.syncSlots = {}
+        state.syncSlots, state.syncBags = {}, {}
     elseif f[1] == "E" and state.syncSlots then
         local slot, row = P.UInt(f[2]), P.Row(f, 3)
         if slot and slot <= 18 and row then state.syncSlots[slot] = row end
+    elseif f[1] == "B" and state.syncBags then
+        local key, row = P.BagKey(f[2], f[3]), P.Row(f, 4)
+        if key and row then state.syncBags[key] = row end
     elseif f[1] == "DONE" and state.syncSlots then
-        state.slots, state.syncSlots = state.syncSlots, nil
+        state.slots, state.bags = state.syncSlots, state.syncBags
+        state.syncSlots, state.syncBags = nil, nil
     end
-    return f
+    return f, completedContext
 end
 function P.Take(state, context)
     local queue = state.queues[context]
-    return queue and table.remove(queue, 1) or {}
+    if queue and #queue > 0 then return table.remove(queue, 1), true end
+    return {}, false
+end
+function P.ClearContext(state, context)
+    state.queues[context] = nil
+    for sequence, snapshot in pairs(state.building) do
+        if snapshot.context == context then state.building[sequence] = nil end
+    end
 end
 function P.Matches(row, link)
     return row and row.entry ~= 0 and row.entry == P.Entry(link)

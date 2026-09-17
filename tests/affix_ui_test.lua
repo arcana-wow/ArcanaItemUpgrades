@@ -62,11 +62,15 @@ function IsInInstance() return inside end
 function UnitIsDeadOrGhost() return dead end
 function UnitAffectingCombat() return combat end
 function GetItemCount() return tokens end
+function GetItemInfo(link)
+    if not link then return nil end
+    return "Test", link, 3, 24, 18, "Armor", "Cloth", 1, "INVTYPE_FEET"
+end
 function UnitIsUnit(a,b) return a==b end
 function UnitGUID() return "0x0000000000000001" end
 local ring="|Hitem:45809:0:0:0:0:0:0:0:80|h[Ring]|h"
 local relic="|Hitem:40711:0:0:0:0:0:0:0:80|h[Relic]|h"
-local boots="|Hitem:10411:0:0:0:0:0:0:0:24|h[Footpads of the Fang]|h"
+local boots="|Hitem:10411:1:0:0:0:0:0:0:24|h[Footpads of the Fang]|h"
 local links={[11]=ring, [18]=relic, [8]=boots}
 function GetInventoryItemLink(unit, slot) return links[slot] end
 function StaticPopup_Show(kind, a,b,data) popup={kind=kind,data=data} end
@@ -114,7 +118,9 @@ local strength, stamina=pack(4,2,18), pack(7,4,18)
 local function sync(bootBonus, revision)
     receive("SYNC"); receive("E\t10\t45809\t123\t"..packed.."\t1")
     receive("E\t17\t40711\t124\t"..packed.."\t1")
-    receive("E\t7\t10411\t125\t"..(bootBonus or strength).."\t"..(revision or 1)); receive("DONE")
+    receive("E\t7\t10411\t125\t"..(bootBonus or strength).."\t"..(revision or 1))
+    receive("B\t0\t1\t10411\t201\t"..stamina.."\t1")
+    receive("DONE")
 end
 local function latestRequest()
     return tonumber(string.match(sent[#sent],"^Q\t(%d+)"))
@@ -156,7 +162,7 @@ local before=#sent
 tooltip:SetInventoryItem("player",8)
 check(rendered("+2 Strength")==1,"synchronized equipment renders without a network round trip")
 check(#sent==before,"equipment snapshot avoids redundant tooltip requests")
-check(GameTooltipTextLeft7:GetText()=="+5 Stamina\n|cff00ff00+2 Strength|r","green bonus immediately follows native enchant")
+check(GameTooltipTextLeft7:GetText()=="|cff00ff00+2 Strength|r\n+5 Stamina","green bonus immediately precedes native enchant")
 check(GameTooltipTextLeft8:GetText()=="Durability 44 / 45","durability remains below bonus")
 check(GameTooltipTextRight3:GetText()=="Leather" and GameTooltipTextRight3:IsShown(),"native right-hand type preserved")
 check(GameTooltipTextRight15:GetText()=="9 silver 45 copper" and GameTooltipTextRight15:IsShown(),"third-party right-hand price preserved")
@@ -168,12 +174,30 @@ for i=1,30 do
 end
 check(#sent==before,"thirty unchanged rebuilds send no additional requests")
 
--- Unknown bag instances resolve once, including duplicate native item links.
+-- Authoritative bag sync prevents the first-hover resize on existing items.
+before=#sent
+tooltip:SetBagItem(0,1)
+check(rendered("+4 Stamina")==1,"synchronized bag bonus renders on first hover")
+check(#sent==before,"synchronized bag bonus needs no hover round trip")
+tooltip:SetBagItem(0,2)
+check(rendered("+4 Stamina")==0,"synchronized empty bag slot has no borrowed bonus")
+check(#sent==before,"complete bag sync also caches absence")
+event("BAG_UPDATE",0)
+check(rendered("+4 Stamina")==0,"bag mutation removes the synchronized value")
+
+-- Unknown/new bag instances reserve stable space and resolve once, including
+-- duplicate native item links.
 tooltip:SetBagItem(0,1)
 local id=latestRequest()
 check(rendered("+2 Strength")==0,"bag copy does not inherit equipped copy's bonus")
+check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
+    "new bag item reserves one stable bonus row")
 before=#sent
-for i=1,10 do tooltip:SetBagItem(0,1) end
+for i=1,10 do
+    tooltip:SetBagItem(0,1)
+    check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
+        "in-flight bag rebuild retains reserved row "..i)
+end
 check(#sent==before,"in-flight bag request is deduplicated across clears")
 reply(id,10411,201,stamina)
 check(rendered("+4 Stamina")==1,"bag reply renders its own instance")
@@ -216,7 +240,7 @@ reply(retry,10411,206,strength); check(rendered("+2 Strength")==1,"retry recover
 sync(); tooltip:SetInventoryItem("player",8)
 receive("RESULT\tRecalibrated"); sync(stamina,2)
 check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,"reroll updates open tooltip and removes old stat")
-check(GameTooltipTextLeft7:GetText()=="+5 Stamina\n|cff00ff00+4 Stamina|r","native enchant survives reroll")
+check(GameTooltipTextLeft7:GetText()=="|cff00ff00+4 Stamina|r\n+5 Stamina","native enchant remains below rerolled bonus")
 event("PLAYER_EQUIPMENT_CHANGED",8)
 tooltip:SetInventoryItem("player",8); id=latestRequest()
 check(rendered("+4 Stamina")==0,"identical replacement does not use stale equipment sync")
@@ -249,6 +273,34 @@ check(rendered("+2 Strength")==1,"loot snapshot uses green enchant placement")
 tooltip:SetLootItem(1); check(rendered("+2 Strength")==1,"loot snapshot survives rebuild")
 event("LOOT_SLOT_CLEARED",1); tooltip:SetLootItem(1)
 check(rendered("+2 Strength")==0,"removed loot has no stale bonus")
+
+-- LOOT_OPENED may beat the addon-message END event. Completion must publish
+-- into the already-open window and refresh the currently hovered slot.
+event("LOOT_CLOSED")
+event("LOOT_OPENED"); tooltip:SetLootItem(1)
+check(rendered("+4 Stamina")==0,"early loot hover waits for its snapshot")
+check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
+    "early loot hover reserves stable bonus space")
+receive("BEGIN\t0\t103"); receive("C\t103\t1\t10411\t902\t"..stamina.."\t1")
+check(rendered("+4 Stamina")==0,"partial loot snapshot is never displayed")
+receive("END\t103")
+check(rendered("+4 Stamina")==1,"late loot snapshot refreshes the active hover")
+
+-- Closing the corpse cancels both queued and in-flight context data.
+event("LOOT_CLOSED")
+event("LOOT_OPENED"); tooltip:SetLootItem(1)
+receive("BEGIN\t0\t104"); receive("C\t104\t1\t10411\t903\t"..strength.."\t1")
+event("LOOT_CLOSED"); receive("END\t104"); tooltip:SetLootItem(1)
+check(rendered("+2 Strength")==0,"closed corpse rejects a late snapshot")
+
+-- Slot identity remains authoritative for duplicate links and paged indices.
+receive("BEGIN\t0\t105")
+receive("C\t105\t1\t10411\t904\t"..strength.."\t1")
+receive("C\t105\t17\t10411\t905\t"..stamina.."\t1")
+receive("END\t105"); event("LOOT_OPENED"); tooltip:SetLootItem(17)
+check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
+    "paged duplicate loot item uses its own snapshot row")
+event("LOOT_CLOSED")
 
 -- No-durability items, gems, localized text, and trailing addon rows.
 for _, tail in ipairs({"Requires Level 80", "Equip: Increases haste.", "Red Socket", "Socket Bonus: +4 Strength", "Test Set (1/5)"}) do
