@@ -13,24 +13,133 @@ local function Allowed()
     local inside = IsInInstance()
     return not inside and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player")
 end
-local function AddLine(tooltip, row)
-    local text = row and P.Describe(row.packed)
-    if not text or tooltip.arcanaAffixAdded then return end
-    tooltip.arcanaAffixAdded = true
-    tooltip:AddLine("Arcana Bonus: " .. text, 0.60, 0.82, 1)
-    tooltip:Show()
-end
+-- A tooltip rebuild clears its font strings even when the hovered item has not
+-- changed. Keep the resolved instance separate from the currently drawn line.
+local epochs = { B=0, E=0, T=0, Y=0, I=0 }
+local equipmentFresh = false
+local refreshTooltip = false
 local function CurrentLink(tooltip)
     local _, link = tooltip:GetItem()
     return link
 end
+local function RemoveLine(tooltip)
+    local line = tooltip.arcanaAffixLine
+    if line and line.font:GetText() == line.rendered then
+        line.font:SetText(line.original)
+        if tooltip:IsShown() then tooltip:Show() end
+    end
+    tooltip.arcanaAffixLine = nil
+end
+local function Plain(text)
+    return (text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+end
+local function FormatPattern(format)
+    -- Match localized client strings, including positional printf arguments.
+    local pattern = format:gsub("%%[%d%$]*[sd]", "\001")
+    return "^" .. pattern:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"):gsub("\001", ".+")
+end
+local function IsFooter(text)
+    if text == "" or text:find("^Arcana Upgrade:") then return true end
+    for _, name in ipairs({"DURABILITY_TEMPLATE", "ITEM_MIN_LEVEL", "ITEM_MIN_SKILL", "ITEM_REQ_SKILL",
+        "ITEM_CLASSES_ALLOWED", "ITEM_RACES_ALLOWED", "ITEM_SPELL_TRIGGER_ONEQUIP",
+        "ITEM_SPELL_TRIGGER_ONUSE", "ITEM_SPELL_TRIGGER_ONPROC", "ITEM_SOCKET_BONUS",
+        "EMPTY_SOCKET_RED", "EMPTY_SOCKET_YELLOW", "EMPTY_SOCKET_BLUE", "EMPTY_SOCKET_META",
+        "EMPTY_SOCKET_PRISMATIC", "ITEM_SET_NAME"}) do
+        local format = _G[name]
+        if format and text:find(FormatPattern(format)) then return true end
+    end
+    return false
+end
+local function AddLine(tooltip, row)
+    local text = row and P.Describe(row.packed)
+    if not text then RemoveLine(tooltip); return end
+    local old = tooltip.arcanaAffixLine
+    if old and old.text == text and old.font:GetText() == old.rendered then return end
+    RemoveLine(tooltip)
+    local name, count = tooltip:GetName(), tooltip:NumLines()
+    if not name or count < 1 then return end
+    local anchor = count
+    -- Filled sockets use gem text rather than "Red Socket". Their textures are
+    -- attached to native left-hand rows, so stop before the first such row.
+    for _, region in ipairs({tooltip:GetRegions()}) do
+        if region:GetObjectType() == "Texture" and region:IsShown() then
+            for point = 1, region:GetNumPoints() do
+                local _, relative = region:GetPoint(point)
+                local relativeName = type(relative) == "string" and relative or
+                    (relative and relative:GetName())
+                local index = relativeName and tonumber(relativeName:match("^" .. name .. "TextLeft(%d+)$"))
+                if index and index > 1 and index <= count then anchor = math.min(anchor, index - 1) end
+            end
+        end
+    end
+    for i = 2, count do
+        local font = _G[name .. "TextLeft" .. i]
+        if font and IsFooter(Plain(font:GetText())) then anchor = math.min(anchor, i - 1); break end
+    end
+    local font = _G[name .. "TextLeft" .. anchor]
+    if not font then return end
+    local original = font:GetText() or ""
+    -- Extend the preceding left-hand row instead of copying/reordering native
+    -- rows. Right-hand prices, wrapped set text, socket icons and font styling
+    -- retain their original font strings and anchors.
+    local rendered = original .. "\n|cff00ff00" .. text .. "|r"
+    font:SetText(rendered)
+    tooltip.arcanaAffixLine = { font=font, original=original, rendered=rendered, text=text }
+    tooltip:Show()
+end
+local function CancelRequest(view)
+    if view and view.request then pending[view.request] = nil; view.request = nil end
+end
 local function Query(tooltip, context, first, second)
-    local entry = P.Entry(CurrentLink(tooltip))
+    local link = CurrentLink(tooltip)
+    local entry = P.Entry(link)
     if not entry then return end
+    second = second or 0
+    local key = table.concat({context, first, second, epochs[context], link}, "\t")
+    local view = tooltip.arcanaAffixCache
+    if not view or view.key ~= key then
+        CancelRequest(view)
+        RemoveLine(tooltip)
+        view = { tooltip=tooltip, context=context, first=first, second=second,
+            key=key, link=link, entry=entry }
+        tooltip.arcanaAffixCache = view
+    end
+    tooltip.arcanaAffixView = view
+    if context == "E" and equipmentFresh and first <= 19 then
+        local row = state.slots[first - 1]
+        if P.Matches(row, link) then view.row = row; CancelRequest(view) end
+    end
+    if view.row then AddLine(tooltip, view.row) end
+    -- Inspection has no reliable local inventory-change notification for the
+    -- other player. Revalidate in the background without hiding the last reply.
+    if view.row and (context ~= "I" or GetTime() < view.validUntil) then return end
+    if view.retryAt and GetTime() < view.retryAt then return end
+    if view.request and pending[view.request] then return end
     sequence = sequence + 1
-    tooltip.arcanaAffixRequest = sequence
-    pending[sequence] = { tooltip=tooltip, entry=entry, expires=GetTime()+5 }
-    Send(table.concat({"Q", sequence, context, first, second or 0, entry}, "\t"))
+    view.request, view.expires = sequence, GetTime() + 5
+    pending[sequence] = view
+    Send(table.concat({"Q", sequence, context, first, second, entry}, "\t"))
+end
+local function Invalidate(context)
+    epochs[context] = epochs[context] + 1
+    if context == "E" then equipmentFresh = false end
+    local tooltip = GameTooltip
+    local view = tooltip.arcanaAffixCache
+    if view and view.context == context then
+        CancelRequest(view)
+        tooltip.arcanaAffixCache = nil
+        if tooltip.arcanaAffixView == view then
+            RemoveLine(tooltip)
+            refreshTooltip = true
+        end
+    end
+end
+local function RefreshTooltip()
+    local tooltip = GameTooltip
+    local view = tooltip.arcanaAffixView
+    if view and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
+        Query(tooltip, view.context, view.first, view.second)
+    end
 end
 local function SnapshotTooltip(tooltip, context, index)
     local row = snapshots[context] and snapshots[context][index]
@@ -76,7 +185,12 @@ frame:HookScript("OnShow", Sync)
 
 local function HookTooltip(tooltip)
     tooltip:HookScript("OnTooltipCleared", function(self)
-        self.arcanaAffixAdded, self.arcanaAffixRequest = nil, nil
+        self.arcanaAffixLine, self.arcanaAffixView = nil, nil
+    end)
+    tooltip:HookScript("OnHide", function(self)
+        CancelRequest(self.arcanaAffixCache)
+        self.arcanaAffixCache, self.arcanaAffixView = nil, nil
+        RemoveLine(self)
     end)
     hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) Query(self, "B", bag, slot) end)
     hooksecurefunc(tooltip, "SetInventoryItem", function(self, unit, slot)
@@ -111,10 +225,25 @@ for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_
     "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA", "LOOT_OPENED", "LOOT_CLOSED",
     "LOOT_SLOT_CLEARED", "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "AUCTION_ITEM_LIST_UPDATE",
     "AUCTION_OWNED_LIST_UPDATE", "AUCTION_BIDDER_LIST_UPDATE", "AUCTION_HOUSE_CLOSED", "MAIL_INBOX_UPDATE",
-    "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE"}) do events:RegisterEvent(event) end
+    "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE", "UNIT_INVENTORY_CHANGED",
+    "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED",
+    "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRADE_SHOW", "TRADE_CLOSED",
+    "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED", "PLAYER_ENTERING_WORLD"}) do events:RegisterEvent(event) end
+local invalidations = {
+    BAG_UPDATE={"B", "E", "Y"}, PLAYER_EQUIPMENT_CHANGED={"E", "B"},
+    PLAYERBANKSLOTS_CHANGED={"B", "E"}, PLAYERBANKBAGSLOTS_CHANGED={"B", "E"},
+    BANKFRAME_CLOSED={"B", "E"}, MERCHANT_UPDATE={"Y", "B", "E"}, MERCHANT_CLOSED={"Y"},
+    TRADE_SHOW={"T"}, TRADE_CLOSED={"T"}, TRADE_PLAYER_ITEM_CHANGED={"T"},
+    TRADE_TARGET_ITEM_CHANGED={"T"}, PLAYER_ENTERING_WORLD={"B", "E", "Y", "T", "I"},
+}
 local contextEvents = { LOOT_OPENED=0, AUCTION_ITEM_LIST_UPDATE=2, AUCTION_OWNED_LIST_UPDATE=3,
     AUCTION_BIDDER_LIST_UPDATE=4, MAIL_INBOX_UPDATE=5 }
 events:SetScript("OnEvent", function(self, event, ...)
+    for _, context in ipairs(invalidations[event] or {}) do Invalidate(context) end
+    if event == "UNIT_INVENTORY_CHANGED" then
+        Invalidate("I")
+        if UnitIsUnit((...), "player") then Invalidate("E"); Invalidate("B") end
+    end
     if event == "PLAYER_LOGIN" then
         if type(RegisterAddonMessagePrefix) == "function" then RegisterAddonMessagePrefix("AAF") end
         Sync()
@@ -122,9 +251,14 @@ events:SetScript("OnEvent", function(self, event, ...)
         local prefix, message, channel, sender = ...
         if prefix ~= "AAF" or channel ~= "WHISPER" or sender ~= UnitName("player") then return end
         local f = P.Receive(state, message)
-        if f[1] == "DONE" then ready = true; frame:SetAffixSlots(state.slots); RefreshControls()
+        if f[1] == "SYNC" then
+            Invalidate("E")
+        elseif f[1] == "DONE" then
+            equipmentFresh, ready = true, true
+            frame:SetAffixSlots(state.slots); RefreshControls(); RefreshTooltip()
         elseif f[1] == "RESULT" then
             paying = false
+            Invalidate("E"); Invalidate("B")
             DEFAULT_CHAT_FRAME:AddMessage("|cff99ccffArcana:|r " .. (f[2] or "Recalibration response received."))
             RefreshControls()
         elseif f[1] == "V" then
@@ -132,10 +266,19 @@ events:SetScript("OnEvent", function(self, event, ...)
             local request = id and pending[id]
             local row = P.Row(f, 3)
             if request then
-                pending[id] = nil
-                if request.expires >= GetTime() and request.tooltip.arcanaAffixRequest == id and
-                    request.tooltip:IsShown() and P.Matches(row, CurrentLink(request.tooltip)) and
-                    row.entry == request.entry then AddLine(request.tooltip, row) end
+                pending[id], request.request = nil, nil
+                local tooltip = request.tooltip
+                if request.expires >= GetTime() and tooltip.arcanaAffixCache == request and row then
+                    if row.entry == request.entry then
+                        request.row, request.validUntil, request.retryAt = row, GetTime() + 1, nil
+                    else
+                        -- Empty/rejected resolution must not retain an old inspection
+                        -- bonus or hammer the server on every native tooltip update.
+                        request.row, request.retryAt = nil, GetTime() + 1
+                    end
+                    if tooltip.arcanaAffixView == request and tooltip:IsShown() and
+                        CurrentLink(tooltip) == request.link then AddLine(tooltip, request.row) end
+                end
             end
         end
     elseif contextEvents[event] ~= nil then
@@ -159,5 +302,11 @@ end)
 events:SetScript("OnUpdate", function()
     local now = GetTime()
     if refreshAt and now >= refreshAt then refreshAt = nil; Sync() end
-    for id, request in pairs(pending) do if request.expires < now then pending[id] = nil end end
+    for id, request in pairs(pending) do
+        if request.expires < now then
+            pending[id], request.request = nil, nil
+            refreshTooltip = true
+        end
+    end
+    if refreshTooltip then refreshTooltip = false; RefreshTooltip() end
 end)
