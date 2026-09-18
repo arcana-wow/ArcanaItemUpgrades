@@ -185,15 +185,49 @@ local function SnapshotTooltip(tooltip, context, index)
     tooltip.arcanaAffixSnapshot = { context=context, index=index, link=link }
     local row = snapshots[context] and snapshots[context][index]
     if P.Matches(row, link) then AddLine(tooltip, row)
-    elseif snapshotWaiting[context] then ReserveLine(tooltip) end
+    else
+        RemoveLine(tooltip)
+        if snapshotWaiting[context] then ReserveLine(tooltip) end
+    end
+end
+local auctionContexts = { list=2, owner=3, bidder=4 }
+local function AuctionTooltip(tooltip, kind, index)
+    local context, link = auctionContexts[kind], CurrentLink(tooltip)
+    if not context then return end
+    local _, _, count, _, _, _, minimum, _, buyout, bid, _, owner = GetAuctionItemInfo(kind, index)
+    local key = P.AuctionKey(GetAuctionItemLink(kind, index), count, minimum, buyout, bid, owner)
+    tooltip.arcanaAffixSnapshot = {
+        context=context, index=index, link=link, auction=true, kind=kind,
+    }
+    local row, ambiguous = P.AuctionRow(snapshots[context], key)
+    if row then
+        AddLine(tooltip, row)
+    else
+        RemoveLine(tooltip)
+        if ambiguous then
+            tooltip:AddLine("Arcana bonuses differ between matching listings.", 1, 0.7, 0.3)
+            tooltip:Show()
+        elseif snapshotWaiting[context] then
+            ReserveLine(tooltip)
+        end
+    end
+end
+local function RefreshSnapshotTooltip(tooltip, view)
+    if view.auction then AuctionTooltip(tooltip, view.kind, view.index)
+    else SnapshotTooltip(tooltip, view.context, view.index) end
 end
 local function PublishSnapshot(context)
     local rows, available = P.Take(state, context)
-    if not available then snapshotWaiting[context] = true; return end
-    snapshots[context], snapshotWaiting[context] = rows, nil
+    if not available then
+        -- A native result event can precede its addon-message snapshot. The
+        -- previous page must not remain eligible while the replacement waits.
+        snapshots[context], snapshotWaiting[context] = nil, true
+    else
+        snapshots[context], snapshotWaiting[context] = rows, nil
+    end
     local tooltip, view = GameTooltip, GameTooltip.arcanaAffixSnapshot
     if view and view.context == context and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
-        SnapshotTooltip(tooltip, view.context, view.index)
+        RefreshSnapshotTooltip(tooltip, view)
     end
 end
 
@@ -258,16 +292,7 @@ local function HookTooltip(tooltip)
     hooksecurefunc(tooltip, "SetInboxItem", function(self, mail, attachment)
         SnapshotTooltip(self, 5, mail * 16 + (attachment or 1))
     end)
-    hooksecurefunc(tooltip, "SetAuctionItem", function(self, kind, index)
-        local _, _, count, _, _, _, minimum, _, buyout, bid, _, owner = GetAuctionItemInfo(kind, index)
-        local key = P.AuctionKey(GetAuctionItemLink(kind, index), count, minimum, buyout, bid, owner)
-        local row, ambiguous = P.AuctionRow(snapshots[({list=2, owner=3, bidder=4})[kind]], key)
-        if row then AddLine(self, row)
-        elseif ambiguous then
-            self:AddLine("Arcana bonuses differ between matching listings.", 1, 0.7, 0.3)
-            self:Show()
-        end
-    end)
+    hooksecurefunc(tooltip, "SetAuctionItem", AuctionTooltip)
 end
 HookTooltip(GameTooltip)
 
