@@ -100,9 +100,16 @@ function tooltip:SetInventoryItem(unit, slot) rebuild(GetInventoryItemLink(unit,
 local bagLink=boots
 function tooltip:SetBagItem(bag,slot) rebuild(bagLink) end
 for _, method in ipairs({"SetTradePlayerItem","SetTradeTargetItem","SetBuybackItem","SetLootItem",
-    "SetLootRollItem","SetInboxItem","SetAuctionItem"}) do
+    "SetLootRollItem","SetInboxItem"}) do
     tooltip[method]=function(self) rebuild(bagLink) end
 end
+local auction={link=boots,count=1,minimum=100,buyout=200,bid=0,owner="Seller"}
+function GetAuctionItemLink(kind,index) return auction.link end
+function GetAuctionItemInfo(kind,index)
+    return "Footpads of the Fang", "Texture", auction.count, 3, true, 18,
+        auction.minimum, 5, auction.buyout, auction.bid, false, auction.owner, 0
+end
+function tooltip:SetAuctionItem(kind,index) rebuild(GetAuctionItemLink(kind,index)) end
 
 dofile("AffixProtocol.lua")
 dofile("ArcanaItemAffixes.lua")
@@ -301,6 +308,34 @@ receive("END\t105"); event("LOOT_OPENED"); tooltip:SetLootItem(17)
 check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
     "paged duplicate loot item uses its own snapshot row")
 event("LOOT_CLOSED")
+
+-- Auction tooltips match a complete listing identity instead of a page index.
+local auctionIdentity=ArcanaAffixProtocol.AuctionKey(auction.link,auction.count,auction.minimum,
+    auction.buyout,auction.bid,auction.owner)
+receive("BEGIN\t2\t106")
+receive("C\t106\t9\t10411\t906\t"..strength.."\t1\t"..auctionIdentity)
+receive("END\t106"); event("AUCTION_ITEM_LIST_UPDATE")
+tooltip:SetAuctionItem("list",1)
+check(rendered("+2 Strength")==1,"auction snapshot renders by complete listing identity")
+
+-- AUCTION_ITEM_LIST_UPDATE may beat the addon-message END event. The old page
+-- is discarded, stable space is reserved, and the active hover refreshes.
+event("AUCTION_ITEM_LIST_UPDATE")
+check(rendered("+2 Strength")==0,"new auction result discards the previous page bonus")
+check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
+    "pending auction snapshot reserves stable bonus space")
+receive("BEGIN\t2\t107")
+receive("C\t107\t17\t10411\t907\t"..stamina.."\t2\t"..auctionIdentity)
+check(rendered("+4 Stamina")==0,"partial auction snapshot is never displayed")
+receive("END\t107")
+check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
+    "late auction snapshot refreshes the active hover without a mouse move")
+
+-- An authoritative empty page removes the reserved row and any old value.
+event("AUCTION_ITEM_LIST_UPDATE")
+receive("BEGIN\t2\t108"); receive("END\t108")
+check(rendered("+4 Stamina")==0 and GameTooltipTextLeft7:GetText()=="+5 Stamina",
+    "empty auction snapshot removes pending and previous bonus text")
 
 -- No-durability items, gems, localized text, and trailing addon rows.
 for _, tail in ipairs({"Requires Level 80", "Equip: Increases haste.", "Red Socket", "Socket Bonus: +4 Strength", "Test Set (1/5)"}) do

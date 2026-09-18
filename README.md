@@ -123,7 +123,7 @@ ambiguity message rather than another listing's bonus.
 Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
 this repository. Actual client rendering requires an in-game check.
 
-### Tooltip regression checks (1.6.2)
+### Tooltip regression checks (1.6.3)
 
 CI runs the protocol and UI suites under Lua 5.1 and includes all three Lua
 files in the install archive. The UI model clears and rebuilds native tooltip
@@ -132,6 +132,7 @@ rebuilds, same-link items in different slots, inventory invalidation, rerolls,
 stale/duplicate/expired replies, request deduplication, inspection, snapshots,
 localized boundaries, socket anchors, permanent-enchant ordering, synchronized
 bag and bank bonuses, late loot completion, closed-context rejection, paged
-duplicate loot items, and native/third-party text preservation.
+duplicate loot items, early and late auction snapshots, replacement auction
+pages, and native/third-party text preservation.
 Actual tooltip sizing and interaction with installed addons still require an
 in-game check. Restart the client after installing an update.
