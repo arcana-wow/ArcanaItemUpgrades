@@ -27,7 +27,10 @@ function P.Entry(link)
 end
 function P.Describe(packed)
     packed = P.UInt(packed)
-    if not packed or packed == 0 or math.floor(packed / 524288) ~= 1 then return nil end
+    if not packed or packed == 0 then return nil end
+    local version = math.floor(packed / 524288)
+    local level = math.floor(packed / 4096) % 128
+    if version < 1 or version > 2 or level < 10 or level > 80 then return nil end
     local stat, amount = packed % 64, math.floor(packed / 64) % 64
     if not P.names[stat] or amount == 0 then return nil end
     return "+" .. amount .. " " .. P.names[stat]

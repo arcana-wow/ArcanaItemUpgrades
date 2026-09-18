@@ -119,9 +119,12 @@ local function receive(text) event("CHAT_MSG_ADDON","AAF",text,"WHISPER","Tester
 local function tick(delta) now=now+(delta or 0); events.scripts.OnUpdate(events) end
 local checks=0
 local function check(value,label) checks=checks+1; assert(value,label) end
-local function pack(stat, amount, level) return 524288+level*4096+amount*64+stat end
+local function pack(stat, amount, level, version)
+    return (version or 1)*524288+level*4096+amount*64+stat
+end
 local packed=pack(4,20,80)
 local strength, stamina=pack(4,2,18), pack(7,4,18)
+local strengthV2, staminaV2=pack(4,2,18,2), pack(7,3,18,2)
 local function sync(bootBonus, revision)
     receive("SYNC"); receive("E\t10\t45809\t123\t"..packed.."\t1")
     receive("E\t17\t40711\t124\t"..packed.."\t1")
@@ -313,7 +316,7 @@ event("LOOT_CLOSED")
 local auctionIdentity=ArcanaAffixProtocol.AuctionKey(auction.link,auction.count,auction.minimum,
     auction.buyout,auction.bid,auction.owner)
 receive("BEGIN\t2\t106")
-receive("C\t106\t9\t10411\t906\t"..strength.."\t1\t"..auctionIdentity)
+receive("C\t106\t9\t10411\t906\t"..strengthV2.."\t1\t"..auctionIdentity)
 receive("END\t106"); event("AUCTION_ITEM_LIST_UPDATE")
 tooltip:SetAuctionItem("list",1)
 check(rendered("+2 Strength")==1,"auction snapshot renders by complete listing identity")
@@ -325,16 +328,16 @@ check(rendered("+2 Strength")==0,"new auction result discards the previous page 
 check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
     "pending auction snapshot reserves stable bonus space")
 receive("BEGIN\t2\t107")
-receive("C\t107\t17\t10411\t907\t"..stamina.."\t2\t"..auctionIdentity)
-check(rendered("+4 Stamina")==0,"partial auction snapshot is never displayed")
+receive("C\t107\t17\t10411\t907\t"..staminaV2.."\t2\t"..auctionIdentity)
+check(rendered("+3 Stamina")==0,"partial auction snapshot is never displayed")
 receive("END\t107")
-check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
-    "late auction snapshot refreshes the active hover without a mouse move")
+check(rendered("+3 Stamina")==1 and rendered("+2 Strength")==0,
+    "late policy-v2 auction snapshot refreshes the active hover without a mouse move")
 
 -- An authoritative empty page removes the reserved row and any old value.
 event("AUCTION_ITEM_LIST_UPDATE")
 receive("BEGIN\t2\t108"); receive("END\t108")
-check(rendered("+4 Stamina")==0 and GameTooltipTextLeft7:GetText()=="+5 Stamina",
+check(rendered("+3 Stamina")==0 and GameTooltipTextLeft7:GetText()=="+5 Stamina",
     "empty auction snapshot removes pending and previous bonus text")
 
 -- No-durability items, gems, localized text, and trailing addon rows.
