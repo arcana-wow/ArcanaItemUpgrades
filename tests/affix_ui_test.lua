@@ -16,6 +16,7 @@ function methods:Hide()
     if self.scripts.OnHide then self.scripts.OnHide(self) end
 end
 function methods:GetItem() return "Test", self.link end
+function methods:GetOwner() return self.owner end
 function methods:GetName() return self.name end
 function methods:NumLines() return self.count or 0 end
 function methods:SetText(text) self.text = text end
@@ -99,10 +100,12 @@ end
 function tooltip:SetInventoryItem(unit, slot) rebuild(GetInventoryItemLink(unit,slot)) end
 local bagLink=boots
 function tooltip:SetBagItem(bag,slot) rebuild(bagLink) end
-for _, method in ipairs({"SetTradePlayerItem","SetTradeTargetItem","SetBuybackItem","SetLootItem",
+for _, method in ipairs({"SetTradePlayerItem","SetTradeTargetItem","SetBuybackItem",
     "SetLootRollItem","SetInboxItem"}) do
     tooltip[method]=function(self) rebuild(bagLink) end
 end
+local lootLink, lootOwner=boots,CreateFrame("Button","TestLootButton")
+function tooltip:SetLootItem(slot) self.owner=lootOwner; rebuild(lootLink) end
 local auction={link=boots,count=1,minimum=100,buyout=200,bid=0,owner="Seller"}
 function GetAuctionItemLink(kind,index) return auction.link end
 function GetAuctionItemInfo(kind,index)
@@ -313,6 +316,53 @@ receive("C\t105\t17\t10411\t905\t"..stamina.."\t1")
 receive("END\t105"); event("LOOT_OPENED"); tooltip:SetLootItem(17)
 check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
     "paged duplicate loot item uses its own snapshot row")
+event("LOOT_CLOSED")
+
+-- A native asynchronous rebuild can clear the addon fields without invoking
+-- SetLootItem again. The durable loot view must restore the same page slot.
+receive("BEGIN	0	109")
+receive("C	109	1	10411	910	"..strength.."	1")
+receive("C	109	4	10411	911	"..stamina.."	1")
+receive("END	109"); event("LOOT_OPENED"); tooltip:SetLootItem(4)
+check(rendered("+4 Stamina")==1,"second-page loot renders before a native rebuild")
+rebuild(boots)
+check(rendered("+4 Stamina")==0,"native rebuild reproduces the cleared custom row")
+tick()
+check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
+    "loot bonus returns after an asynchronous native rebuild without mouse movement")
+
+-- Completion must recover even when the native rebuild discarded the ordinary
+-- snapshot view while the multi-message snapshot was still in flight.
+event("LOOT_CLOSED"); event("LOOT_OPENED"); tooltip:SetLootItem(4)
+receive("BEGIN	0	110"); receive("C	110	4	10411	912	"..strength.."	1")
+rebuild(boots)
+receive("END	110")
+check(rendered("+2 Strength")==1,
+    "late paged snapshot survives a native tooltip rebuild")
+
+-- A cold item cache can expose the loot slot before GetItemInfo supplies its
+-- link. OnTooltipSetItem must bind the later link to the retained slot.
+event("LOOT_CLOSED"); event("LOOT_OPENED"); lootLink=nil; tooltip:SetLootItem(4)
+receive("BEGIN	0	111"); receive("C	111	4	10411	913	"..stamina.."	1"); receive("END	111")
+check(rendered("+4 Stamina")==0,"linkless loot hover waits for native item data")
+lootLink=boots; rebuild(boots); tick()
+check(rendered("+4 Stamina")==1,"cold-cache loot recovers when native item data arrives")
+tooltip:SetInventoryItem("player",8); tick()
+check(tooltip.arcanaAffixLoot==nil,"same-link inventory tooltip cancels durable loot recovery")
+tooltip:SetLootItem(4)
+check(rendered("+4 Stamina")==1,"returning to the loot slot restores its own context")
+
+-- Native slot changes redraw the retained row, while cleared slots and other
+-- tooltip owners can never inherit it.
+local active=tooltip.arcanaAffixLine
+active.font:SetText(active.original); tooltip.arcanaAffixLine=nil
+event("LOOT_SLOT_CHANGED",4); tick()
+check(rendered("+4 Stamina")==1,"loot slot change restores the active row")
+event("LOOT_SLOT_CLEARED",4)
+check(rendered("+4 Stamina")==0 and tooltip.arcanaAffixLoot==nil,
+    "cleared loot slot removes its durable view")
+tooltip.owner=CreateFrame("Button","OtherOwner"); rebuild(boots); tick()
+check(rendered("+4 Stamina")==0,"another tooltip owner cannot reuse a cleared loot view")
 event("LOOT_CLOSED")
 
 -- Auction tooltips match a complete listing identity instead of a page index.
