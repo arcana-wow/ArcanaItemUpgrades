@@ -7,6 +7,7 @@ local auctionEpoch = { [2]=0, [3]=0, [4]=0 }
 local pending, sequence = {}, 0
 local frame = ArcanaItemUpgradesFrame
 local ready, paying, refreshAt = false, false, nil
+local lootOpen, lootEpoch, refreshLootTooltip = false, 0, false
 
 local function Send(text)
     SendAddonMessage("AAF", text, "WHISPER", UnitName("player"))
@@ -208,15 +209,46 @@ local function RefreshTooltip()
         Query(tooltip, view.context, view.first, view.second)
     end
 end
+local function ClearLootView(tooltip)
+    tooltip.arcanaAffixLoot = nil
+    local view = tooltip.arcanaAffixSnapshot
+    if view and view.context == 0 then tooltip.arcanaAffixSnapshot = nil end
+end
+local function SameTooltipOwner(tooltip, view)
+    local owner = tooltip.GetOwner and tooltip:GetOwner()
+    return not view.owner or not owner or view.owner == owner
+end
+local function CurrentLootView(tooltip)
+    local view = tooltip.arcanaAffixLoot
+    if not view or not lootOpen or view.epoch ~= lootEpoch or not tooltip:IsShown() or
+        not SameTooltipOwner(tooltip, view) then return nil end
+    local link = CurrentLink(tooltip)
+    if view.link and link ~= view.link then return nil end
+    return view, link
+end
 local function SnapshotTooltip(tooltip, context, index)
     local link = CurrentLink(tooltip)
-    tooltip.arcanaAffixSnapshot = { context=context, index=index, link=link }
+    local view = { context=context, index=index, link=link }
+    if context == 0 and lootOpen then
+        view.epoch = lootEpoch
+        view.owner = tooltip.GetOwner and tooltip:GetOwner()
+        tooltip.arcanaAffixLoot = view
+    else
+        ClearLootView(tooltip)
+    end
+    tooltip.arcanaAffixSnapshot = view
     local row = snapshots[context] and snapshots[context][index]
     if P.Matches(row, link) then AddLine(tooltip, row)
     else
         RemoveLine(tooltip)
         if snapshotWaiting[context] then ReserveLine(tooltip) end
     end
+end
+local function RestoreLootTooltip(tooltip)
+    local view, link = CurrentLootView(tooltip)
+    if not view then return end
+    if not view.link and link then view.link = link end
+    SnapshotTooltip(tooltip, 0, view.index)
 end
 local auctionContexts = { list=2, owner=3, bidder=4 }
 local function AuctionTooltip(tooltip, kind, index)
@@ -258,9 +290,12 @@ local function PublishSnapshot(context)
     else
         snapshots[context], snapshotWaiting[context] = rows, nil
     end
-    local tooltip, view = GameTooltip, GameTooltip.arcanaAffixSnapshot
+    local tooltip = GameTooltip
+    local view = tooltip.arcanaAffixSnapshot or (context == 0 and tooltip.arcanaAffixLoot)
     if view and view.context == context and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
         RefreshSnapshotTooltip(tooltip, view)
+    elseif context == 0 and CurrentLootView(tooltip) then
+        refreshLootTooltip = true
     end
 end
 
@@ -305,34 +340,42 @@ local function HookTooltip(tooltip)
     tooltip:HookScript("OnTooltipCleared", function(self)
         self.arcanaAffixLine, self.arcanaAffixView, self.arcanaAffixSnapshot = nil, nil, nil
     end)
+    tooltip:HookScript("OnTooltipSetItem", function(self)
+        if CurrentLootView(self) then refreshLootTooltip = true end
+    end)
     tooltip:HookScript("OnHide", function(self)
         CancelRequest(self.arcanaAffixCache)
-        self.arcanaAffixCache, self.arcanaAffixView, self.arcanaAffixSnapshot = nil, nil, nil
+        self.arcanaAffixCache, self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot = nil, nil, nil, nil
         RemoveLine(self)
     end)
-    hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) Query(self, "B", bag, slot) end)
+    hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) ClearLootView(self); Query(self, "B", bag, slot) end)
     hooksecurefunc(tooltip, "SetInventoryItem", function(self, unit, slot)
+        ClearLootView(self)
         if UnitIsUnit(unit, "player") then Query(self, "E", slot, 0)
         elseif UnitGUID(unit) then Query(self, "I", slot, UnitGUID(unit)) end
     end)
-    hooksecurefunc(tooltip, "SetTradePlayerItem", function(self, slot) Query(self, "T", 0, slot) end)
-    hooksecurefunc(tooltip, "SetTradeTargetItem", function(self, slot) Query(self, "T", 1, slot) end)
-    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot) Query(self, "Y", slot, 0) end)
+    hooksecurefunc(tooltip, "SetTradePlayerItem", function(self, slot) ClearLootView(self); Query(self, "T", 0, slot) end)
+    hooksecurefunc(tooltip, "SetTradeTargetItem", function(self, slot) ClearLootView(self); Query(self, "T", 1, slot) end)
+    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot) ClearLootView(self); Query(self, "Y", slot, 0) end)
     hooksecurefunc(tooltip, "SetLootItem", function(self, slot) SnapshotTooltip(self, 0, slot) end)
     hooksecurefunc(tooltip, "SetLootRollItem", function(self, roll)
+        ClearLootView(self)
         if P.Matches(rolls[roll], CurrentLink(self)) then AddLine(self, rolls[roll]) end
     end)
     hooksecurefunc(tooltip, "SetInboxItem", function(self, mail, attachment)
         SnapshotTooltip(self, 5, mail * 16 + (attachment or 1))
     end)
-    hooksecurefunc(tooltip, "SetAuctionItem", AuctionTooltip)
+    hooksecurefunc(tooltip, "SetAuctionItem", function(self, kind, index)
+        ClearLootView(self)
+        AuctionTooltip(self, kind, index)
+    end)
 end
 HookTooltip(GameTooltip)
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA", "LOOT_OPENED", "LOOT_CLOSED",
-    "LOOT_SLOT_CLEARED", "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "AUCTION_ITEM_LIST_UPDATE",
+    "LOOT_SLOT_CLEARED", "LOOT_SLOT_CHANGED", "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "AUCTION_ITEM_LIST_UPDATE",
     "AUCTION_OWNED_LIST_UPDATE", "AUCTION_BIDDER_LIST_UPDATE", "AUCTION_HOUSE_CLOSED", "MAIL_INBOX_UPDATE",
     "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE", "UNIT_INVENTORY_CHANGED",
     "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED",
@@ -420,6 +463,10 @@ events:SetScript("OnEvent", function(self, event, ...)
         end
     elseif contextEvents[event] ~= nil then
         local context = contextEvents[event]
+        if context == 0 then
+            lootOpen, lootEpoch = true, lootEpoch + 1
+            ClearLootView(GameTooltip)
+        end
         if context >= 2 and context <= 4 then ClearAuctionContext(context) end
         PublishSnapshot(context)
     elseif event == "START_LOOT_ROLL" then
@@ -428,10 +475,21 @@ events:SetScript("OnEvent", function(self, event, ...)
         if P.Matches(rows[0], GetLootRollItemLink(roll)) then rolls[roll] = rows[0] end
     elseif event == "CANCEL_LOOT_ROLL" then rolls[(...)] = nil
     elseif event == "LOOT_CLOSED" then
+        lootOpen, lootEpoch, refreshLootTooltip = false, lootEpoch + 1, false
+        ClearLootView(GameTooltip)
         snapshots[0], snapshotWaiting[0] = nil, nil
         P.ClearContext(state, 0)
     elseif event == "LOOT_SLOT_CLEARED" then
-        if snapshots[0] then snapshots[0][(...)] = nil end
+        local slot = ...
+        if snapshots[0] then snapshots[0][slot] = nil end
+        local view = GameTooltip.arcanaAffixLoot
+        if view and view.epoch == lootEpoch and view.index == slot then
+            ClearLootView(GameTooltip)
+            RemoveLine(GameTooltip)
+        end
+    elseif event == "LOOT_SLOT_CHANGED" then
+        local view = GameTooltip.arcanaAffixLoot
+        if view and view.epoch == lootEpoch and view.index == (...) then refreshLootTooltip = true end
     elseif event == "MAIL_CLOSED" then
         snapshots[5], snapshotWaiting[5] = nil, nil
         P.ClearContext(state, 5)
@@ -456,4 +514,5 @@ events:SetScript("OnUpdate", function()
         end
     end
     if refreshTooltip then refreshTooltip = false; RefreshTooltip() end
+    if refreshLootTooltip then refreshLootTooltip = false; RestoreLootTooltip(GameTooltip) end
 end)
