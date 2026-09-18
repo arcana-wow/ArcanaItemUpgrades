@@ -114,7 +114,12 @@ are deduplicated, expire after five seconds and reject replies for replaced or
 hidden tooltips. Inspection revalidates after one second while retaining the
 previous reply during the request. Snapshot publication is order-independent:
 a complete loot, mail or auction snapshot is paired with its native window
-whether the addon message or the native UI event arrives first.
+whether the addon message or the native UI event arrives first. If another
+auction addon raises an extra or delayed result event after that one-shot
+snapshot has been consumed, hovering a listing requests that exact visible
+identity from the server's bounded current-page cache. Replies are tied to the
+current auction-page epoch, so a delayed reply cannot annotate a replacement
+page.
 
 The stock auction API cannot distinguish listings with identical native item
 links, seller and prices. If their bonuses differ, the addon displays an
@@ -123,7 +128,7 @@ ambiguity message rather than another listing's bonus.
 Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
 this repository. Actual client rendering requires an in-game check.
 
-### Tooltip regression checks (1.6.4)
+### Tooltip regression checks (1.6.5)
 
 CI runs the protocol and UI suites under Lua 5.1 and includes all three Lua
 files in the install archive. The UI model clears and rebuilds native tooltip
@@ -133,6 +138,6 @@ stale/duplicate/expired replies, request deduplication, inspection, snapshots,
 localized boundaries, socket anchors, permanent-enchant ordering, synchronized
 bag and bank bonuses, late loot completion, closed-context rejection, paged
 duplicate loot items, early and late auction snapshots, replacement auction
-pages, both persisted stat-policy versions, and native/third-party text
+pages, exact auction recovery after duplicate result events, stale recovery rejection, both persisted stat-policy versions, and native/third-party text
 preservation. Actual tooltip sizing and interaction with installed addons still
 require an in-game check. Restart the client after installing an update.

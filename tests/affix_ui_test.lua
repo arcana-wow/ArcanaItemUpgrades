@@ -135,6 +135,9 @@ end
 local function latestRequest()
     return tonumber(string.match(sent[#sent],"^Q\t(%d+)"))
 end
+local function latestAuctionRequest()
+    return tonumber(string.match(sent[#sent],"^A\t(%d+)\t[234]\t"))
+end
 local function reply(id,entry,guid,bonus,revision)
     assert(id, "expected a tooltip request")
     receive(table.concat({"V",id,entry,guid,bonus,revision or 1},"\t"))
@@ -321,18 +324,36 @@ receive("END\t106"); event("AUCTION_ITEM_LIST_UPDATE")
 tooltip:SetAuctionItem("list",1)
 check(rendered("+2 Strength")==1,"auction snapshot renders by complete listing identity")
 
--- AUCTION_ITEM_LIST_UPDATE may beat the addon-message END event. The old page
--- is discarded, stable space is reserved, and the active hover refreshes.
+-- Another auction addon can produce a native result event after the one-shot
+-- snapshot was consumed. The active hover requests its exact visible identity.
 event("AUCTION_ITEM_LIST_UPDATE")
-check(rendered("+2 Strength")==0,"new auction result discards the previous page bonus")
+check(rendered("+2 Strength")==0,"duplicate auction result discards the consumed page bonus")
 check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina",
-    "pending auction snapshot reserves stable bonus space")
+    "pending auction recovery reserves stable bonus space")
+local recovery=latestAuctionRequest()
+check(recovery~=nil and sent[#sent]:find(auctionIdentity,1,true)~=nil,
+    "auction recovery requests the complete visible listing identity")
+receive("AV\t"..recovery.."\t1\t10411\t907\t"..staminaV2.."\t2")
+check(rendered("+3 Stamina")==1 and rendered("+2 Strength")==0,
+    "exact auction recovery replaces the reserved row without a mouse move")
+
+-- AUCTION_ITEM_LIST_UPDATE may also beat addon-message END. The old recovery
+-- is page-scoped, partial bulk data is hidden, and completion wins atomically.
+event("AUCTION_ITEM_LIST_UPDATE")
+local staleRecovery=latestAuctionRequest()
+event("AUCTION_ITEM_LIST_UPDATE")
+local currentRecovery=latestAuctionRequest()
+check(currentRecovery~=staleRecovery,"replacement auction page gets a new recovery request")
+receive("AV\t"..staleRecovery.."\t1\t10411\t908\t"..strengthV2.."\t3")
+check(rendered("+2 Strength")==0,"late recovery from a replaced auction page is rejected")
 receive("BEGIN\t2\t107")
-receive("C\t107\t17\t10411\t907\t"..staminaV2.."\t2\t"..auctionIdentity)
+receive("C\t107\t17\t10411\t909\t"..staminaV2.."\t2\t"..auctionIdentity)
 check(rendered("+3 Stamina")==0,"partial auction snapshot is never displayed")
 receive("END\t107")
 check(rendered("+3 Stamina")==1 and rendered("+2 Strength")==0,
     "late policy-v2 auction snapshot refreshes the active hover without a mouse move")
+receive("AV\t"..currentRecovery.."\t1\t10411\t909\t"..staminaV2.."\t2")
+check(rendered("+3 Stamina")==1,"matching recovery reply cannot duplicate a completed bulk value")
 
 -- An authoritative empty page removes the reserved row and any old value.
 event("AUCTION_ITEM_LIST_UPDATE")

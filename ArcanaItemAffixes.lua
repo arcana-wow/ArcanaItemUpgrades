@@ -2,6 +2,8 @@ local P = ArcanaAffixProtocol
 local state = P.New()
 local snapshots, rolls = {}, {}
 local snapshotWaiting = {}
+local auctionResolved, auctionPending, auctionRequestKeys = { [2]={}, [3]={}, [4]={} }, {}, {}
+local auctionEpoch = { [2]=0, [3]=0, [4]=0 }
 local pending, sequence = {}, 0
 local frame = ArcanaItemUpgradesFrame
 local ready, paying, refreshAt = false, false, nil
@@ -10,6 +12,32 @@ local function Send(text)
     SendAddonMessage("AAF", text, "WHISPER", UnitName("player"))
 end
 local function Sync() Send("SYNC") end
+local function ClearAuctionContext(context)
+    auctionEpoch[context] = auctionEpoch[context] + 1
+    auctionResolved[context] = {}
+    for id, request in pairs(auctionPending) do
+        if request.context == context then
+            auctionPending[id], auctionRequestKeys[request.key] = nil, nil
+        end
+    end
+end
+local function RequestAuction(view)
+    if not view.identity then return end
+    local key = table.concat({view.context, view.epoch, view.identity}, "\t")
+    if auctionRequestKeys[key] then return end
+    sequence = sequence + 1
+    local message = table.concat({"A", sequence, view.context, view.identity}, "\t")
+    if #message > 240 then
+        auctionResolved[view.context][view.identity] = { missing=true }
+        return
+    end
+    auctionPending[sequence] = {
+        context=view.context, epoch=view.epoch, identity=view.identity,
+        entry=P.Entry(view.link), key=key,
+    }
+    auctionRequestKeys[key] = sequence
+    Send(message)
+end
 local function Allowed()
     local inside = IsInInstance()
     return not inside and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player")
@@ -195,21 +223,26 @@ local function AuctionTooltip(tooltip, kind, index)
     local context, link = auctionContexts[kind], CurrentLink(tooltip)
     if not context then return end
     local _, _, count, _, _, _, minimum, _, buyout, bid, _, owner = GetAuctionItemInfo(kind, index)
-    local key = P.AuctionKey(GetAuctionItemLink(kind, index), count, minimum, buyout, bid, owner)
-    tooltip.arcanaAffixSnapshot = {
+    local identity = P.AuctionKey(GetAuctionItemLink(kind, index), count, minimum, buyout, bid, owner)
+    local view = {
         context=context, index=index, link=link, auction=true, kind=kind,
+        identity=identity, epoch=auctionEpoch[context],
     }
-    local row, ambiguous = P.AuctionRow(snapshots[context], key)
+    tooltip.arcanaAffixSnapshot = view
+    local row, ambiguous = P.AuctionRow(snapshots[context], identity)
+    local direct = identity and auctionResolved[context] and auctionResolved[context][identity]
     if row then
         AddLine(tooltip, row)
+    elseif ambiguous or (direct and direct.ambiguous) then
+        RemoveLine(tooltip)
+        tooltip:AddLine("Arcana bonuses differ between matching listings.", 1, 0.7, 0.3)
+        tooltip:Show()
+    elseif direct then
+        if direct.row then AddLine(tooltip, direct.row) else RemoveLine(tooltip) end
     else
         RemoveLine(tooltip)
-        if ambiguous then
-            tooltip:AddLine("Arcana bonuses differ between matching listings.", 1, 0.7, 0.3)
-            tooltip:Show()
-        elseif snapshotWaiting[context] then
-            ReserveLine(tooltip)
-        end
+        if snapshotWaiting[context] then ReserveLine(tooltip) end
+        RequestAuction(view)
     end
 end
 local function RefreshSnapshotTooltip(tooltip, view)
@@ -327,7 +360,32 @@ events:SetScript("OnEvent", function(self, event, ...)
         local prefix, message, channel, sender = ...
         if prefix ~= "AAF" or channel ~= "WHISPER" or sender ~= UnitName("player") then return end
         local f, completedContext = P.Receive(state, message)
-        if f[1] == "SYNC" then
+        if f[1] == "AV" then
+            local id, status = P.UInt(f[2]), P.UInt(f[3])
+            local request = id and auctionPending[id]
+            if request then
+                auctionPending[id], auctionRequestKeys[request.key] = nil, nil
+                if request.epoch == auctionEpoch[request.context] and status and status <= 2 then
+                    local result = {}
+                    if status == 1 then
+                        local row = P.Row(f, 4)
+                        if not row or row.entry ~= request.entry then return end
+                        result.row = row
+                    elseif status == 2 then
+                        result.ambiguous = true
+                    else
+                        result.missing = true
+                    end
+                    auctionResolved[request.context][request.identity] = result
+                    local tooltip, view = GameTooltip, GameTooltip.arcanaAffixSnapshot
+                    if view and view.auction and view.context == request.context and
+                        view.epoch == request.epoch and view.identity == request.identity and
+                        tooltip:IsShown() and CurrentLink(tooltip) == view.link then
+                        RefreshSnapshotTooltip(tooltip, view)
+                    end
+                end
+            end
+        elseif f[1] == "SYNC" then
             Invalidate("E")
         elseif f[1] == "DONE" then
             equipmentFresh, bagsFresh, ready = true, true, true
@@ -362,6 +420,7 @@ events:SetScript("OnEvent", function(self, event, ...)
         end
     elseif contextEvents[event] ~= nil then
         local context = contextEvents[event]
+        if context >= 2 and context <= 4 then ClearAuctionContext(context) end
         PublishSnapshot(context)
     elseif event == "START_LOOT_ROLL" then
         local roll = ...
@@ -379,6 +438,7 @@ events:SetScript("OnEvent", function(self, event, ...)
     elseif event == "AUCTION_HOUSE_CLOSED" then
         for context = 2, 4 do
             snapshots[context], snapshotWaiting[context] = nil, nil
+            ClearAuctionContext(context)
             P.ClearContext(state, context)
         end
     else
