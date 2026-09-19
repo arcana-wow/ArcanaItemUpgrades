@@ -84,6 +84,13 @@ local function PermanentEnchant(link)
     local enchant = type(link) == "string" and tonumber(link:match("item:%d+:(%-?%d+):"))
     return enchant and enchant > 0
 end
+local function EnchantRequirement(text)
+    for _, name in ipairs({"ENCHANT_ITEM_MIN_SKILL", "ENCHANT_ITEM_REQ_SKILL", "ENCHANT_ITEM_REQ_LEVEL"}) do
+        local format = _G[name]
+        if format and text:find(FormatPattern(format)) then return true end
+    end
+    return false
+end
 local function Green(font)
     if not font or not font:GetText() then return false end
     local r, g, b = font:GetTextColor()
@@ -115,9 +122,25 @@ local function RenderLine(tooltip, text)
     end
     local font
     if PermanentEnchant(CurrentLink(tooltip)) then
+        local first = 2
+        local _, _, _, _, _, _, _, _, equip = GetItemInfo(CurrentLink(tooltip))
+        local slotText = equip and _G[equip]
+        -- Heroic and other header labels can be green too. Enchants belong
+        -- below the localized equipment-type row, after the native stats.
         for i = 2, anchor do
             local candidate = _G[name .. "TextLeft" .. i]
-            if Green(candidate) then font = candidate; break end
+            if slotText and candidate and Plain(candidate:GetText()) == slotText then first = i + 1; break end
+        end
+        for i = first, anchor do
+            local candidate = _G[name .. "TextLeft" .. i]
+            local following = _G[name .. "TextLeft" .. (i + 1)]
+            local value = candidate and Plain(candidate:GetText())
+            -- Unusable profession/runeforging enchants are red and followed
+            -- by their enchant requirement. Preserve both native rows.
+            if value and value ~= ITEM_HEROIC and (Green(candidate) or
+                (following and EnchantRequirement(Plain(following:GetText())))) then
+                font = candidate; break
+            end
         end
     end
     local before = font ~= nil
@@ -145,6 +168,101 @@ end
 local function CancelRequest(view)
     if view and view.request then pending[view.request] = nil; view.request = nil end
 end
+-- Only the open native inspection window owns a preload cache. Other tooltip
+-- providers retain the ordinary per-hover request lifecycle.
+local inspection, inspectionQueryAt = nil, 0
+local function InspectionUnit()
+    local window = InspectFrame
+    local unit = window and window:IsShown() and window.unit
+    return unit and not UnitIsUnit(unit, "player") and unit or nil
+end
+local function ClearInspectionViews()
+    if not inspection then return end
+    for _, view in pairs(inspection.views) do CancelRequest(view) end
+    inspection.views = {}
+    local tooltip = GameTooltip
+    local view = tooltip.arcanaAffixCache
+    if view and view.inspection == inspection then
+        tooltip.arcanaAffixCache, tooltip.arcanaAffixHiddenInspection = nil, nil
+        if tooltip.arcanaAffixView == view then RemoveLine(tooltip); refreshTooltip = true end
+    end
+end
+local function CloseInspection()
+    local view = GameTooltip.arcanaAffixView
+    ClearInspectionViews()
+    if inspection and view and view.inspection == inspection then GameTooltip.arcanaAffixView = nil end
+    inspection = nil
+end
+local function CurrentInspection()
+    local unit = InspectionUnit()
+    local guid = unit and UnitGUID(unit)
+    if not guid then CloseInspection(); return nil end
+    if not inspection or inspection.guid ~= guid then
+        CloseInspection()
+        inspection = { unit=unit, guid=guid, views={}, remaining=17, scanUntil=GetTime() + 5 }
+    end
+    inspection.unit = unit
+    return inspection
+end
+local function InspectionView(slot, link, entry, guid)
+    local current = CurrentInspection()
+    if not current or current.guid ~= guid or slot < 1 or slot > 19 or
+        GetInventoryItemLink(current.unit, slot) ~= link then return nil end
+    local view = current.views[slot]
+    if not view or view.link ~= link then
+        CancelRequest(view)
+        view = { tooltip=GameTooltip, context="I", first=slot, second=guid,
+            key=table.concat({"I", slot, guid, epochs.I, link}, "\t"),
+            link=link, entry=entry, inspection=current }
+        current.views[slot] = view
+    end
+    return view
+end
+local function CurrentInspectionView(view)
+    local unit = InspectionUnit()
+    return view and view.inspection and view.inspection == inspection and
+        unit and UnitGUID(unit) == inspection.guid and
+        inspection.views[view.first] == view and
+        GetInventoryItemLink(inspection.unit, view.first) == view.link
+end
+local function DetachRequest(view)
+    if not CurrentInspectionView(view) then CancelRequest(view) end
+end
+local function Request(view)
+    if view.request and pending[view.request] then return end
+    sequence = sequence + 1
+    view.request, view.expires = sequence, GetTime() + 5
+    pending[sequence] = view
+    Send(table.concat({"Q", sequence, view.context, view.first, view.second, view.entry}, "\t"))
+end
+local function PreloadInspection(now)
+    local current = CurrentInspection()
+    if not current or now < inspectionQueryAt or now > current.scanUntil or current.remaining == 0 then return end
+    inspectionQueryAt = now + 0.1
+    -- At most one preload per 100 ms, 17 per opening, and no refresh sweep.
+    -- Cold/missing links may appear during the first five seconds. Hovers can
+    -- always query immediately and share any already pending preload.
+    for slot = 1, 18 do
+        if slot ~= 4 then
+            local link = GetInventoryItemLink(current.unit, slot)
+            local entry = P.Entry(link)
+            if entry and not current.views[slot] then
+                local view = InspectionView(slot, link, entry, current.guid)
+                current.remaining = current.remaining - 1
+                Request(view)
+                return
+            end
+        end
+    end
+end
+local function HookInspection()
+    if not InspectFrame or InspectFrame.arcanaAffixHooked then return end
+    InspectFrame.arcanaAffixHooked = true
+    InspectFrame:HookScript("OnShow", function() CloseInspection(); CurrentInspection() end)
+    InspectFrame:HookScript("OnHide", CloseInspection)
+end
+HookInspection()
+
 local function Query(tooltip, context, first, second)
     local link = CurrentLink(tooltip)
     local entry = P.Entry(link)
@@ -153,9 +271,10 @@ local function Query(tooltip, context, first, second)
     local key = table.concat({context, first, second, epochs[context], link}, "\t")
     local view = tooltip.arcanaAffixCache
     if not view or view.key ~= key then
-        CancelRequest(view)
+        DetachRequest(view)
         RemoveLine(tooltip)
-        view = { tooltip=tooltip, context=context, first=first, second=second,
+        view = context == "I" and InspectionView(first, link, entry, second) or nil
+        view = view or { tooltip=tooltip, context=context, first=first, second=second,
             key=key, link=link, entry=entry }
         tooltip.arcanaAffixCache = view
     end
@@ -175,21 +294,19 @@ local function Query(tooltip, context, first, second)
             CancelRequest(view)
         end
     end
+    if view.inspection and view.row and GetTime() >= view.keepUntil then view.row = nil end
     if view.row then AddLine(tooltip, view.row) end
     if view.known then return end
     -- Inspection has no reliable local inventory-change notification for the
     -- other player. Revalidate in the background without hiding the last reply.
     if view.row and (context ~= "I" or GetTime() < view.validUntil) then return end
     if view.retryAt and GetTime() < view.retryAt then return end
-    if context == "B" then ReserveLine(tooltip) end
-    if view.request and pending[view.request] then return end
-    sequence = sequence + 1
-    view.request, view.expires = sequence, GetTime() + 5
-    pending[sequence] = view
-    Send(table.concat({"Q", sequence, context, first, second, entry}, "\t"))
+    if context == "B" or (context == "I" and not view.row) then ReserveLine(tooltip) end
+    Request(view)
 end
 local function Invalidate(context)
     epochs[context] = epochs[context] + 1
+    if context == "I" then ClearInspectionViews() end
     if context == "E" then equipmentFresh = false end
     if context == "B" then bagsFresh = false end
     local tooltip = GameTooltip
@@ -350,7 +467,8 @@ local function HookTooltip(tooltip)
             -- InspectPaperDoll's OnUpdate calls SetOwner before SetInventoryItem.
             -- That intermediate hide is not a mouse leave. Retain the request
             -- until the next update; only Query with the same full identity can
-            -- reattach it. A real leave/close or another context retires it.
+            -- reattach it. A real leave retires the tooltip binding; only an
+            -- open native inspection session may retain the slot's request.
             self.arcanaAffixHiddenInspection = view
         else
             CancelRequest(view)
@@ -389,7 +507,7 @@ for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_
     "LOOT_SLOT_CLEARED", "LOOT_SLOT_CHANGED", "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "AUCTION_ITEM_LIST_UPDATE",
     "AUCTION_OWNED_LIST_UPDATE", "AUCTION_BIDDER_LIST_UPDATE", "AUCTION_HOUSE_CLOSED", "MAIL_INBOX_UPDATE",
     "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE", "UNIT_INVENTORY_CHANGED",
-    "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED",
+    "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED", "ADDON_LOADED",
     "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRADE_SHOW", "TRADE_CLOSED",
     "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED", "PLAYER_ENTERING_WORLD"}) do events:RegisterEvent(event) end
 local invalidations = {
@@ -404,10 +522,16 @@ local contextEvents = { LOOT_OPENED=0, AUCTION_ITEM_LIST_UPDATE=2, AUCTION_OWNED
 events:SetScript("OnEvent", function(self, event, ...)
     for _, context in ipairs(invalidations[event] or {}) do Invalidate(context) end
     if event == "UNIT_INVENTORY_CHANGED" then
-        Invalidate("I")
-        if UnitIsUnit((...), "player") then Invalidate("E"); Invalidate("B") end
+        local unit = ...
+        local guid = unit and UnitGUID(unit)
+        local view = GameTooltip.arcanaAffixCache
+        if guid and ((inspection and guid == inspection.guid) or
+            (view and view.context == "I" and guid == view.second)) then Invalidate("I") end
+        if unit and UnitIsUnit(unit, "player") then Invalidate("E"); Invalidate("B") end
     end
-    if event == "PLAYER_LOGIN" then
+    if event == "ADDON_LOADED" then
+        if (...) == "Blizzard_InspectUI" then HookInspection() end
+    elseif event == "PLAYER_LOGIN" then
         if type(RegisterAddonMessagePrefix) == "function" then RegisterAddonMessagePrefix("AAF") end
         Sync()
     elseif event == "CHAT_MSG_ADDON" then
@@ -456,9 +580,12 @@ events:SetScript("OnEvent", function(self, event, ...)
             if request then
                 pending[id], request.request = nil, nil
                 local tooltip = request.tooltip
-                if request.expires >= GetTime() and tooltip.arcanaAffixCache == request and row then
+                local current = request.inspection and CurrentInspectionView(request) or
+                    (not request.inspection and tooltip.arcanaAffixCache == request)
+                if request.expires >= GetTime() and current and row then
                     if row.entry == request.entry then
                         request.row, request.validUntil, request.retryAt = row, GetTime() + 1, nil
+                        request.keepUntil = GetTime() + 30
                     else
                         -- Empty/rejected resolution must not retain an old inspection
                         -- bonus or hammer the server on every native tooltip update.
@@ -517,12 +644,13 @@ events:SetScript("OnEvent", function(self, event, ...)
 end)
 events:SetScript("OnUpdate", function()
     local now = GetTime()
+    PreloadInspection(now)
     local tooltip = GameTooltip
     local hidden = tooltip.arcanaAffixHiddenInspection
     if hidden then
         tooltip.arcanaAffixHiddenInspection = nil
         if tooltip.arcanaAffixCache == hidden then
-            CancelRequest(hidden)
+            DetachRequest(hidden)
             tooltip.arcanaAffixCache = nil
         end
     end
