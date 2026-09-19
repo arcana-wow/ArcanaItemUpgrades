@@ -160,6 +160,7 @@ local function Query(tooltip, context, first, second)
         tooltip.arcanaAffixCache = view
     end
     tooltip.arcanaAffixView = view
+    tooltip.arcanaAffixHiddenInspection = nil
     if context == "E" and equipmentFresh and first <= 19 then
         local row = state.slots[first - 1]
         if P.Matches(row, link) then view.row = row; CancelRequest(view) end
@@ -344,8 +345,18 @@ local function HookTooltip(tooltip)
         if CurrentLootView(self) then refreshLootTooltip = true end
     end)
     tooltip:HookScript("OnHide", function(self)
-        CancelRequest(self.arcanaAffixCache)
-        self.arcanaAffixCache, self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot = nil, nil, nil, nil
+        local view = self.arcanaAffixCache
+        if view and view.context == "I" then
+            -- InspectPaperDoll's OnUpdate calls SetOwner before SetInventoryItem.
+            -- That intermediate hide is not a mouse leave. Retain the request
+            -- until the next update; only Query with the same full identity can
+            -- reattach it. A real leave/close or another context retires it.
+            self.arcanaAffixHiddenInspection = view
+        else
+            CancelRequest(view)
+            self.arcanaAffixCache, self.arcanaAffixHiddenInspection = nil, nil
+        end
+        self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot = nil, nil, nil
         RemoveLine(self)
     end)
     hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) ClearLootView(self); Query(self, "B", bag, slot) end)
@@ -506,6 +517,15 @@ events:SetScript("OnEvent", function(self, event, ...)
 end)
 events:SetScript("OnUpdate", function()
     local now = GetTime()
+    local tooltip = GameTooltip
+    local hidden = tooltip.arcanaAffixHiddenInspection
+    if hidden then
+        tooltip.arcanaAffixHiddenInspection = nil
+        if tooltip.arcanaAffixCache == hidden then
+            CancelRequest(hidden)
+            tooltip.arcanaAffixCache = nil
+        end
+    end
     if refreshAt and now >= refreshAt then refreshAt = nil; Sync() end
     for id, request in pairs(pending) do
         if request.expires < now then

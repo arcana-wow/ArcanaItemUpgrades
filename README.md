@@ -111,8 +111,13 @@ context and slot, never by item entry or link alone. Inventory, equipment, bank,
 buyback and trade events
 invalidate those contexts; rerolls refresh an open tooltip. In-flight requests
 are deduplicated, expire after five seconds and reject replies for replaced or
-hidden tooltips. Inspection revalidates after one second while retaining the
-previous reply during the request. Snapshot publication is order-independent:
+closed tooltips. Inspection retains its exact character/slot/link request and
+cached bonus through the native `SetOwner` hide/rebuild within a frame. If that
+inspection is not reattached before the next update, its request is retired;
+a reply never reopens a hidden tooltip. Changing character, slot, item or
+inventory context still invalidates it. Inspection revalidates after one second
+while retaining the previous reply during the request. Snapshot publication is
+order-independent:
 a complete loot, mail or auction snapshot is paired with its native window
 whether the addon message or the native UI event arrives first. Loot tooltips
 retain an owner- and window-bound slot across native tooltip clears, asynchronous
@@ -132,7 +137,7 @@ ambiguity message rather than another listing's bonus.
 Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
 this repository. Actual client rendering requires an in-game check.
 
-### Tooltip regression checks (1.6.6)
+### Tooltip regression checks (1.6.7)
 
 CI runs the protocol and UI suites under Lua 5.1 and includes all three Lua
 files in the install archive. The UI model clears and rebuilds native tooltip
@@ -145,5 +150,10 @@ duplicate loot items, native loot-tooltip rebuilds, cold-cache item data,
 loot-slot changes, owner and same-link context isolation, early and late auction
 snapshots, replacement auction pages, exact auction recovery after duplicate
 result events, stale recovery rejection, both persisted stat-policy versions,
-and native/third-party text preservation. Actual tooltip sizing and interaction
-with installed addons still require an in-game check. Restart the client after installing an update.
+and native/third-party text preservation. Inspection regressions also model
+`SetOwner` hide/rebuild cycles, delayed replies at low level and level 80,
+background revalidation and rejection backoff, genuine leave/close, hidden
+replies, identical links on different bots or slots, inventory replacement,
+timeouts and transitions back to the owner's equipment. Actual tooltip sizing
+and interaction with installed addons still require an in-game check. Restart
+the client after installing an update.
