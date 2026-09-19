@@ -15,6 +15,12 @@ function methods:Hide()
     self.shown = false
     if self.scripts.OnHide then self.scripts.OnHide(self) end
 end
+-- Native inspection calls SetOwner again on every hovered-slot update.
+-- SetOwner hides the tooltip before SetInventoryItem repopulates it.
+function methods:SetOwner(owner)
+    self:Hide()
+    self.owner=owner
+end
 function methods:GetItem() return "Test", self.link end
 function methods:GetOwner() return self.owner end
 function methods:GetName() return self.name end
@@ -68,7 +74,8 @@ function GetItemInfo(link)
     return "Test", link, 3, 24, 18, "Armor", "Cloth", 1, "INVTYPE_FEET"
 end
 function UnitIsUnit(a,b) return a==b end
-function UnitGUID() return "0x0000000000000001" end
+local targetGuid="0x0000000000000001"
+function UnitGUID(unit) return unit=="target" and targetGuid or "0x0000000000000001" end
 local ring="|Hitem:45809:0:0:0:0:0:0:0:80|h[Ring]|h"
 local relic="|Hitem:40711:0:0:0:0:0:0:0:80|h[Relic]|h"
 local boots="|Hitem:10411:1:0:0:0:0:0:0:24|h[Footpads of the Fang]|h"
@@ -453,5 +460,94 @@ sync(); tooltip:SetInventoryItem("player",8)
 receive("BEGIN\t0\t102"); receive("C\t102\t1\t10411\t901\t"..strength.."\t1"); receive("END\t102")
 event("LOOT_OPENED"); tooltip:SetLootItem(1); event("PLAYER_EQUIPMENT_CHANGED",8)
 check(rendered("+2 Strength")==1,"equipment invalidation leaves current loot snapshot intact")
+
+-- Inspection must survive the real SetOwner -> hide -> SetInventoryItem
+-- cycle, including replies later than one display frame. A plain Set* rebuild
+-- does not exercise this lifecycle.
+local inspectOwner=CreateFrame("Button","InspectFeetSlot")
+local function inspectHover(slot, owner)
+    tooltip:SetOwner(owner or inspectOwner)
+    tooltip:SetInventoryItem("target",slot or 8)
+end
+layout={"Item", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
+    "+5 Stamina", "Requires Level 80"}
+tooltip:Hide(); tick(1)
+for _, case in ipairs({{slot=8,entry=10411,bonus=strength,text="+2 Strength"},
+    {slot=11,entry=45809,bonus=pack(4,20,80,2),text="+20 Strength"}}) do
+    tooltip:Hide(); tick()
+    inspectHover(case.slot); id=latestRequest(); before=#sent
+    for i=1,30 do
+        inspectHover(case.slot)
+        tick(1/60)
+        check(#sent==before,"inspection owner resets keep one pending request "..i)
+        if i==8 then reply(id,case.entry,1100,case.bonus) end
+        if i>=8 then check(rendered(case.text)==1,"inspection reply survives owner reset "..i) end
+    end
+    check(tooltip.arcanaAffixCache.row.guid==1100,"inspection preserves exact resolved instance")
+end
+
+-- Periodic validation keeps the last reply through refreshes, but a server
+-- rejection clears it and the retry backoff survives those same resets.
+tooltip:Hide(); tick(); inspectHover(); id=latestRequest(); reply(id,10411,1101,strength)
+now=now+2; inspectHover(); id=latestRequest(); before=#sent
+for i=1,10 do inspectHover(); tick(1/60) end
+check(#sent==before and rendered("+2 Strength")==1,"owner reset preserves background validation")
+reply(id,0,0,0,0)
+check(rendered("+2 Strength")==0,"rejected inspection clears the retained bonus")
+before=#sent
+for i=1,10 do inspectHover(); tick(1/60) end
+check(#sent==before,"owner reset preserves rejected-inspection backoff")
+now=now+2; inspectHover(); id=latestRequest(); reply(id,10411,1101,stamina)
+check(rendered("+4 Stamina")==1,"inspection recovers after rejection")
+
+-- Genuine leave/close and unrelated same-link tooltips cannot retain or draw
+-- a delayed inspection result. A hide followed by no rebuild is retired.
+now=now+2; inspectHover(); id=latestRequest()
+tooltip:Hide(); tick(); reply(id,10411,1101,strength)
+check(not tooltip:IsShown() and tooltip.arcanaAffixCache==nil,"genuine inspection hide retires the request")
+inspectHover(); check(latestRequest()~=id and rendered("+4 Stamina")==0,"reopening inspection starts fresh")
+id=latestRequest(); tooltip:Hide(); reply(id,10411,1101,strength)
+check(not tooltip:IsShown(),"reply during hidden interval never opens tooltip")
+tick(); inspectHover(); check(latestRequest()~=id and rendered("+2 Strength")==0,"hidden reply is discarded on actual leave")
+id=latestRequest(); tooltip:SetOwner(CreateFrame("Button","UnrelatedItemLink")); rebuild(boots)
+reply(id,10411,1101,strength); tick()
+check(rendered("+2 Strength")==0 and tooltip.arcanaAffixCache==nil,"unrelated same-link tooltip cannot reuse inspection")
+
+-- Switching to another bot with the same native link must not borrow a bonus.
+inspectHover(); id=latestRequest(); targetGuid="0x0000000000000002"; inspectHover()
+local otherBot=latestRequest()
+check(otherBot~=id,"another bot gets a separate request even with the same item link")
+reply(id,10411,1101,strength)
+check(rendered("+2 Strength")==0,"previous bot reply is rejected")
+reply(otherBot,10411,1102,stamina)
+check(rendered("+4 Stamina")==1,"new bot displays its own bonus")
+targetGuid="0x0000000000000001"; inspectHover()
+check(rendered("+4 Stamina")==0,"returning to another bot cannot reuse its predecessor")
+
+-- Matching entries and links in different slots are also separate instances.
+id=latestRequest(); links[9]=boots; inspectHover(9,CreateFrame("Button","InspectWristSlot"))
+local otherSlot=latestRequest(); reply(id,10411,1101,strength)
+check(otherSlot~=id and rendered("+2 Strength")==0,"same-link slot change rejects previous slot reply")
+reply(otherSlot,10411,1103,stamina)
+check(rendered("+4 Stamina")==1,"same-link replacement slot receives its own bonus")
+links[9]=nil
+
+-- An inventory change invalidates an identical native item replacement.
+inspectHover(); id=latestRequest(); event("UNIT_INVENTORY_CHANGED","target")
+reply(id,10411,1101,strength); inspectHover()
+check(latestRequest()~=id and rendered("+2 Strength")==0,"inventory event invalidates pending inspection")
+reply(latestRequest(),10411,1104,stamina)
+check(rendered("+4 Stamina")==1,"changed inventory resolves its new instance")
+
+-- A timeout still retries the same hovered item, and leaving inspection for
+-- the owner's equipment continues using the independent synchronized bonus.
+now=now+2; inspectHover(); id=latestRequest(); tick(6)
+local retried=latestRequest()
+check(retried~=id,"inspection timeout retries without mouse movement")
+reply(id,10411,1104,strength)
+check(rendered("+2 Strength")==0,"expired inspection reply is rejected")
+sync(); tooltip:SetOwner(CreateFrame("Button","CharacterFeetSlot")); tooltip:SetInventoryItem("player",8)
+reply(retried,10411,1104,stamina)
+check(rendered("+2 Strength")==1 and rendered("+4 Stamina")==0,"self equipment cannot receive an inspection reply")
 
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")
