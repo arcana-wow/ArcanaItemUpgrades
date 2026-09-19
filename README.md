@@ -98,7 +98,9 @@ The AAF self-whisper protocol supplies per-instance bonuses for bags,
 equipment, bank, buyback, trade, inspection, loot, rolls, mail and auctions.
 Bonuses appear as green `+N Stat` text in the enchant area, immediately above
 a permanent native enchant when present and before sockets, durability or
-requirements. The renderer
+requirements. Enchant placement starts below the localized equipment-type row,
+so green Heroic/header labels stay at the top. Red profession/runeforging
+enchants are recognized by their localized enchant requirement. The renderer
 extends a native left-hand text row; existing right-hand prices, wrapped set
 text and socket font strings retain their contents and anchors.
 
@@ -106,18 +108,30 @@ An unchanged hover reuses its resolved bonus through native tooltip rebuilds.
 Equipment, bags and bank slots use one current authoritative synchronization.
 If a newly moved bag item is hovered before that synchronization completes, an
 invisible reserved line prevents the tooltip from changing height while its
-exact instance reply arrives. Other items are cached only for the exact tooltip
-context and slot, never by item entry or link alone. Inventory, equipment, bank,
-buyback and trade events
+exact instance reply arrives. Cold inspection hovers reserve the same space.
+Other items are cached only for the exact tooltip context and slot, never by
+item entry or link alone. Inventory, equipment, bank, buyback and trade events
 invalidate those contexts; rerolls refresh an open tooltip. In-flight requests
-are deduplicated, expire after five seconds and reject replies for replaced or
-closed tooltips. Inspection retains its exact character/slot/link request and
-cached bonus through the native `SetOwner` hide/rebuild within a frame. If that
-inspection is not reattached before the next update, its request is retired;
-a reply never reopens a hidden tooltip. Changing character, slot, item or
-inventory context still invalidates it. Inspection revalidates after one second
-while retaining the previous reply during the request. Snapshot publication is
-order-independent:
+are deduplicated and expire after five seconds.
+
+Opening the native inspection window preloads at most 17 equipped slots,
+excluding shirt and tabard, at one request per 100 ms. Native links that arrive
+late can join this initial pass for five seconds; there is no repeated full-gear
+refresh. The existing AAF server protocol supplies authoritative bonuses from
+memory without a new server build or database query. Preloads and hovers share
+requests and a cache bound to the open window, character GUID, equipment slot,
+and complete item link. A reply may warm an unhovered slot but cannot draw on
+another item or reopen a hidden tooltip. Closing inspection, changing character,
+or an inventory event for the inspected character clears those cached instances.
+Inventory events cannot reset that opening's 17-request preload budget.
+
+Inspection retains its binding through native `SetOwner` hide/rebuild cycles.
+Leaving a slot clears the tooltip binding while the open window can retain its
+reply for up to 30 seconds. Hovering a cached slot displays the last confirmed
+value immediately and revalidates it after one second; rejected replies clear
+it with bounded retry backoff. Other inspection providers without a native
+window use the existing per-hover lifecycle. A cold first hover can still wait
+for a server round trip. Snapshot publication is order-independent:
 a complete loot, mail or auction snapshot is paired with its native window
 whether the addon message or the native UI event arrives first. Loot tooltips
 retain an owner- and window-bound slot across native tooltip clears, asynchronous
@@ -137,7 +151,7 @@ ambiguity message rather than another listing's bonus.
 Run lua5.1 tests/affix_protocol_test.lua and lua5.1 tests/affix_ui_test.lua from
 this repository. Actual client rendering requires an in-game check.
 
-### Tooltip regression checks (1.6.7)
+### Tooltip regression checks (1.6.8)
 
 CI runs the protocol and UI suites under Lua 5.1 and includes all three Lua
 files in the install archive. The UI model clears and rebuilds native tooltip
@@ -154,6 +168,10 @@ and native/third-party text preservation. Inspection regressions also model
 `SetOwner` hide/rebuild cycles, delayed replies at low level and level 80,
 background revalidation and rejection backoff, genuine leave/close, hidden
 replies, identical links on different bots or slots, inventory replacement,
-timeouts and transitions back to the owner's equipment. Actual tooltip sizing
+timeouts and transitions back to the owner's equipment. Coverage also includes
+Heroic/localized headers, red enchants, reserved inspection space, shared preload
+requests, immediate warm hovers, cache age, identical links in separate slots,
+window/character/equipment invalidation, cold links, expired preload replies,
+and the 17-slot/rate/startup bounds. Actual tooltip sizing
 and interaction with installed addons still require an in-game check. Restart
 the client after installing an update.

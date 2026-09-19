@@ -82,6 +82,7 @@ local boots="|Hitem:10411:1:0:0:0:0:0:0:24|h[Footpads of the Fang]|h"
 local links={[11]=ring, [18]=relic, [8]=boots}
 function GetInventoryItemLink(unit, slot) return links[slot] end
 function StaticPopup_Show(kind, a,b,data) popup={kind=kind,data=data} end
+local layoutColors
 local layout={"Footpads of the Fang", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
     "+5 Stamina", "Durability 44 / 45", "Requires Level 18", "", "Embrace of the Viper (3/5)",
     "Set: Increases nature spell power by\n7.", "Arcana Upgrade: 0/5", "GearScore: 17", "Vendor"}
@@ -96,7 +97,8 @@ end
 local function rebuild(link)
     clear(); tooltip.link=link; tooltip:Show()
     for i,text in ipairs(layout) do
-        tooltip:AddLine(text, i==7 and 0 or 1, 1, i==7 and 0 or 1)
+        local color = layoutColors and layoutColors[i] or (i==7 and {0,1,0} or {1,1,1})
+        tooltip:AddLine(text, unpack(color))
     end
     if #layout==15 then
         GameTooltipTextRight3:SetText("Leather"); GameTooltipTextRight3:Show()
@@ -549,5 +551,180 @@ check(rendered("+2 Strength")==0,"expired inspection reply is rejected")
 sync(); tooltip:SetOwner(CreateFrame("Button","CharacterFeetSlot")); tooltip:SetInventoryItem("player",8)
 reply(retried,10411,1104,stamina)
 check(rendered("+2 Strength")==1 and rendered("+4 Stamina")==0,"self equipment cannot receive an inspection reply")
+
+
+-- Heroic headers and unusable native enchants reproduce the owner's recording.
+ITEM_HEROIC="Heroic"; INVTYPE_FEET="Feet"
+ENCHANT_ITEM_MIN_SKILL="Enchantment Requires %s (%d)"
+ENCHANT_ITEM_REQ_SKILL="Enchantment Requires %s"
+ENCHANT_ITEM_REQ_LEVEL="Enchantment Requires Level %d"
+layout={"Heroic Boots", "Heroic", "Soulbound", "Feet", "1980 Armor", "+121 Strength", "+137 Stamina",
+    "+45 Attack Power and +15 Critical Strike Rating", "Durability 44 / 45"}
+layoutColors={[2]={0,1,0},[7]={1,1,1},[8]={0,1,0}}
+local function bagBonus()
+    event("BAG_UPDATE",0); tooltip:Hide(); tooltip:SetBagItem(0,7); reply(latestRequest(),10411,1200,strength)
+end
+bagBonus()
+check(GameTooltipTextLeft2:GetText()=="Heroic","Heroic header never receives the Arcana bonus")
+check(GameTooltipTextLeft8:GetText()=="|cff00ff00+2 Strength|r\n+45 Attack Power and +15 Critical Strike Rating",
+    "Heroic bonus follows base stats and precedes the real enchant")
+ITEM_HEROIC="Heroisch"; INVTYPE_FEET="Füße"; layout[2],layout[4]="Heroisch","Füße"
+bagBonus()
+check(GameTooltipTextLeft2:GetText()=="Heroisch" and GameTooltipTextLeft8:GetText():find("^|cff00ff00"),
+    "localized equipment boundary excludes the localized Heroic header")
+-- Headers supplied by another addon are excluded by the same equipment boundary.
+layout[2]="Other green header"
+bagBonus()
+check(GameTooltipTextLeft2:GetText()=="Other green header","other green headers stay above the stats")
+ITEM_HEROIC="Heroic"; INVTYPE_FEET="Feet"; layout[2],layout[4]="Heroic","Feet"
+for _, enchant in ipairs({{"+130 Attack Power", "Enchantment Requires Leatherworking (400)"},
+    {"Rune of the Fallen Crusader", "Enchantment Requires Runeforging"}}) do
+    layout[8],layout[9],layout[10]=enchant[1],enchant[2],"Durability 44 / 45"
+    layoutColors[8],layoutColors[9]={1,0.1,0.1},{1,0.1,0.1}
+    bagBonus()
+    check(GameTooltipTextLeft8:GetText()=="|cff00ff00+2 Strength|r\n"..enchant[1],
+        "bonus precedes unusable enchant: "..enchant[1])
+    check(GameTooltipTextLeft9:GetText()==enchant[2],"red enchant requirement stays on its native row")
+end
+layoutColors=nil
+layout={"Item", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
+    "+5 Stamina", "Requires Level 80"}
+
+-- Native inspection opens before the first hover. Prefetching shares the same
+-- requests as hovering and stays bounded even with cold item links.
+InspectFrame=CreateFrame("Frame","InspectFrame"); InspectFrame:Hide()
+event("ADDON_LOADED","Blizzard_InspectUI")
+local function openInspection()
+    tooltip:Hide(); tick()
+    InspectFrame.unit="target"; InspectFrame:Show()
+    InspectFrame.scripts.OnShow(InspectFrame)
+end
+local function queryCount(slot)
+    local count=0
+    for _, message in ipairs(sent) do
+        local queried=tonumber(message:match("^Q\t%d+\tI\t(%d+)\t"))
+        if queried and (not slot or queried==slot) then count=count+1 end
+    end
+    return count
+end
+local function lastQuery()
+    for i=#sent,1,-1 do
+        local request,slot,guid,entry=sent[i]:match("^Q\t(%d+)\tI\t(%d+)\t([^\t]+)\t(%d+)$")
+        if request then return tonumber(request),tonumber(slot),guid,tonumber(entry) end
+    end
+end
+targetGuid="0x0000000000000100"
+openInspection(); before=queryCount(); tick(0.11)
+local warm,slot=lastQuery()
+check(slot==8 and queryCount()==before+1,"opening inspection requests the first populated equipment slot")
+for i=1,5 do tick(0.01) end
+check(queryCount()==before+1,"preload requests are paced rather than sent every display frame")
+inspectHover(); check(lastQuery()==warm and queryCount()==before+1,"hover shares an in-flight preload")
+check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina","cold inspection reserves space before the bonus arrives")
+reply(warm,10411,1300,strength)
+check(rendered("+2 Strength")==1,"preload completion updates the already hovered item")
+-- Leaving a slot retains its request/cache only inside this same open window.
+tooltip:Hide(); tick(0.11); warm,slot=lastQuery()
+check(slot==11,"preload continues with another equipped slot")
+reply(warm,45809,1301,stamina)
+check(not tooltip:IsShown(),"unhovered preload never opens the tooltip")
+before=queryCount(); inspectHover(11)
+check(rendered("+4 Stamina")==1 and queryCount()==before,"first hover of a preloaded slot renders immediately")
+inspectHover(8)
+check(rendered("+2 Strength")==1 and queryCount()==before,"returning to another cached slot is immediate")
+-- A stale cached value is visible during revalidation, but expires entirely
+-- after 30 seconds without a confirming server reply.
+now=now+2; inspectHover(11); warm=lastQuery()
+check(rendered("+4 Stamina")==1,"cached inspection remains visible during background revalidation")
+reply(warm,45809,1301,strength,2)
+check(rendered("+2 Strength")==1 and rendered("+4 Stamina")==0,"revalidation replaces the preloaded value")
+now=now+31; inspectHover(8)
+check(rendered("+2 Strength")==0,"old unhovered cached value is not displayed after its maximum age")
+-- Same links in separate equipment slots are separate cache entries.
+links[9]=boots; inspectHover(9); warm=lastQuery(); reply(warm,10411,1302,stamina)
+inspectHover(8); warm=lastQuery(); reply(warm,10411,1303,strength)
+inspectHover(9)
+check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,"session cache keeps duplicate links in separate slots")
+links[9]=nil
+-- Changing a link rejects the outstanding response even before the next tick.
+now=now+2; inspectHover(8); warm=lastQuery(); links[8]=ring
+reply(warm,10411,1303,strength)
+inspectHover(8)
+check(rendered("+2 Strength")==0,"changed slot link cannot inherit its former cached bonus")
+links[8]=boots
+-- Unrelated inventory events do not flush/restart inspection preloading.
+inspectHover(8); warm=lastQuery(); reply(warm,10411,1303,strength)
+before=queryCount(); event("UNIT_INVENTORY_CHANGED","player"); inspectHover(8)
+check(queryCount()==before and rendered("+2 Strength")==1,"owner inventory event preserves another character's inspection cache")
+event("UNIT_INVENTORY_CHANGED","target"); inspectHover(8)
+check(queryCount()==before+1 and rendered("+2 Strength")==0,"inspected equipment event clears cached instances even with identical links")
+reply(lastQuery(),10411,1304,stamina)
+-- Target identity is checked at reply time, not only on the next update.
+now=now+2; inspectHover(8); warm=lastQuery(); targetGuid="0x0000000000000101"
+reply(warm,10411,1304,strength); inspectHover(8)
+check(rendered("+2 Strength")==0 and rendered("+4 Stamina")==0,"switching bots cannot borrow old cached rows or late responses")
+warm=lastQuery(); InspectFrame:Hide(); reply(warm,10411,1305,strength); tick(0.11)
+check(rendered("+2 Strength")==0,"closing the inspection window rejects its delayed replies")
+-- A close/reopen of the same bot starts a new session.
+openInspection(); before=queryCount(); inspectHover(8)
+check(queryCount()==before+1 and rendered("+2 Strength")==0,"reopening the same bot cannot reuse a closed session")
+reply(lastQuery(),10411,1306,stamina)
+InspectFrame:Hide(); tooltip:Hide()
+-- Fill every slot, including shirt/tabard, to verify the worst-case budget.
+local savedLinks=links
+links={}; for i=1,19 do links[i]=boots end
+openInspection(); before=queryCount()
+for i=1,65 do
+    tick(0.11)
+    local request,queried=lastQuery()
+    if queryCount()>before then reply(request,10411,1400+queried,strength) end
+end
+check(queryCount()==before+17,"one full inspection preloads at most 17 slots and skips shirt/tabard")
+for i=1,10 do tick(1) end
+check(queryCount()==before+17,"idle inspection never polls the entire equipment set again")
+-- An equipment event may clear replies, but cannot reset that opening's budget.
+event("UNIT_INVENTORY_CHANGED","target"); tick(0.2)
+check(queryCount()==before+17,"inventory notifications do not grant another full preload budget")
+InspectFrame:Hide(); before=queryCount(); tick(1)
+check(queryCount()==before,"closed inspection sends no preload requests")
+-- Cold links can arrive after the window opens; missing slots stop being
+-- scanned after five seconds and still resolve normally on a later hover.
+links={}; openInspection(); before=queryCount(); tick(0.11)
+check(queryCount()==before,"empty/cold slots send no speculative requests")
+links[8]=boots; tick(0.11)
+check(queryCount()==before+1,"late native item data starts its one preload")
+warm=lastQuery(); tick(6); reply(warm,10411,1500,strength)
+inspectHover(8)
+check(rendered("+2 Strength")==0 and lastQuery()~=warm,"expired preload is rejected and hover retries")
+reply(lastQuery(),10411,1501,stamina)
+links[11]=ring; before=queryCount(); tick(1)
+check(queryCount()==before,"cold-link scans stop after their bounded startup window")
+inspectHover(11)
+check(queryCount()==before+1,"a later hover can still request a slot missed during preload")
+InspectFrame:Hide(); tooltip:Hide(); links=savedLinks
+
+-- Hidden/unrelated same-link tooltips may warm a slot, but may never receive
+-- its text; retaining a session request does not retain a tooltip binding.
+openInspection(); inspectHover(8); warm=lastQuery()
+tooltip:SetOwner(CreateFrame("Button","SameLinkOutsideInspect")); rebuild(boots)
+reply(warm,10411,1600,strength); tick(0.11)
+check(rendered("+2 Strength")==0,"session reply cannot annotate an unrelated same-link tooltip")
+inspectHover(8)
+check(rendered("+2 Strength")==1,"unhovered reply is available when its actual slot is hovered again")
+now=now+2; inspectHover(8); warm=lastQuery(); reply(warm,0,0,0,0)
+check(rendered("+2 Strength")==0,"server rejection clears a preloaded cached bonus")
+before=queryCount(8)
+for i=1,30 do inspectHover(8); tick(1/60) end
+check(queryCount(8)==before,"session rejection retains retry backoff across native owner resets")
+-- Closing and reopening rapidly does not reset the preload rate limiter.
+InspectFrame:Hide(); tooltip:Hide(); openInspection(); tick(0.11); before=queryCount()
+InspectFrame:Hide(); openInspection(); tick(0.01)
+check(queryCount()==before,"rapid window reopening does not bypass the preload rate limit")
+-- The owner snapshot is isolated even while preloads for the bot are arriving.
+tick(0.11); warm,slot=lastQuery(); sync(); tooltip:SetInventoryItem("player",8)
+reply(warm,slot==8 and 10411 or 45809,1601,stamina)
+check(rendered("+2 Strength")==1 and rendered("+4 Stamina")==0,
+    "unhovered preload cannot overwrite the owner's synchronized bonus")
+InspectFrame:Hide(); tooltip:Hide()
 
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")
