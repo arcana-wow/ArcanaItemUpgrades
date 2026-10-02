@@ -96,6 +96,14 @@ local function Green(font)
     local r, g, b = font:GetTextColor()
     return r and r < 0.2 and g and g > 0.8 and b and b < 0.2
 end
+local function ArmorLine(text)
+    -- Bonus armor is green in the native client, just like an enchant. Match
+    -- the localized numeric armor row, not an enchant such as "+120 Armor".
+    if not ARMOR_TEMPLATE then return false end
+    local pattern = ARMOR_TEMPLATE:gsub("%%[%d%$]*d", "\001")
+    pattern = pattern:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"):gsub("\001", "%%d+")
+    return text:find("^" .. pattern .. "$") ~= nil
+end
 local function RenderLine(tooltip, text)
     local old = tooltip.arcanaAffixLine
     if old and old.text == text and old.font:GetText() == old.rendered then return end
@@ -137,7 +145,7 @@ local function RenderLine(tooltip, text)
             local value = candidate and Plain(candidate:GetText())
             -- Unusable profession/runeforging enchants are red and followed
             -- by their enchant requirement. Preserve both native rows.
-            if value and value ~= ITEM_HEROIC and (Green(candidate) or
+            if value and value ~= ITEM_HEROIC and not ArmorLine(value) and (Green(candidate) or
                 (following and EnchantRequirement(Plain(following:GetText())))) then
                 font = candidate; break
             end

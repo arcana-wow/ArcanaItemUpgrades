@@ -586,6 +586,49 @@ for _, enchant in ipairs({{"+130 Attack Power", "Enchantment Requires Leatherwor
         "bonus precedes unusable enchant: "..enchant[1])
     check(GameTooltipTextLeft9:GetText()==enchant[2],"red enchant requirement stays on its native row")
 end
+-- The reported Oracle items have green native armor, before white base stats.
+-- Exercise real item entries, uncached reservation, replies, rebuilds and locale.
+local savedBagLink, savedInfo = bagLink, GetItemInfo
+for _, item in ipairs({{21349, "Oracle's Footwraps", "INVTYPE_FEET", "Feet", 123},
+    {21352, "Trousers of the Oracle", "INVTYPE_LEGS", "Legs", 173}}) do
+    bagLink="|Hitem:"..item[1]..":1:0:0:0:0:0:0:60|h["..item[2].."]|h"
+    GetItemInfo=function(link) return item[2],link,4,81,60,"Armor","Cloth",1,item[3] end
+    for _, locale in ipairs({{"%d Armor",item[4]}, {"%1$d Rüstung", "Ausrüstung"}}) do
+        ARMOR_TEMPLATE, _G[item[3]]=locale[1],locale[2]
+        local armor=tostring(item[5])..(locale[1]:find("Rüstung",1,true) and " Rüstung" or " Armor")
+        layout={item[2],"Soulbound",locale[2],armor,"+20 Intellect","+15 Stamina",
+            "+5 Stamina","Durability 44 / 45"}
+        layoutColors={[4]={0,1,0},[7]={0,1,0}}
+        event("BAG_UPDATE",0); tooltip:Hide(); tooltip:SetBagItem(0,7)
+        check(GameTooltipTextLeft4:GetText()==armor,"green armor retains its native row before reply")
+        check(GameTooltipTextLeft7:GetText()=="|c00000000 |r\n+5 Stamina","reservation follows base stats")
+        reply(latestRequest(),item[1],1201,strength)
+        check(GameTooltipTextLeft7:GetText()=="|cff00ff00+2 Strength|r\n+5 Stamina",
+            "Oracle bonus follows native stats and precedes enchant")
+        check(GameTooltipTextLeft6:GetText()=="+15 Stamina","last native stat remains unchanged")
+        tooltip:SetBagItem(0,7)
+        check(rendered("+2 Strength")==1 and GameTooltipTextLeft4:GetText()==armor,
+            "native rebuild retains correct placement exactly once")
+        local r,g,b=GameTooltipTextLeft4:GetTextColor()
+        check(r==0 and g==1 and b==0,"native green armor color is preserved")
+    end
+end
+bagLink, GetItemInfo = savedBagLink, savedInfo
+ARMOR_TEMPLATE="%d Armor"; INVTYPE_FEET="Feet"
+-- A real armor enchant must still be treated as an enchant, including its +.
+layout={"Item","Soulbound","Feet","123 Armor","+20 Stamina","+120 Armor","Durability 44 / 45"}
+layoutColors={[4]={0,1,0},[6]={0,1,0}}
+bagBonus()
+check(GameTooltipTextLeft6:GetText()=="|cff00ff00+2 Strength|r\n+120 Armor",
+    "signed armor enchant is not mistaken for the native armor row")
+-- No permanent enchant: green armor cannot move the bonus above base stats.
+bagLink=bagLink:gsub("item:10411:1:","item:10411:0:")
+layout={"Item","Soulbound","Feet","123 Armor","+20 Stamina","Durability 44 / 45"}
+layoutColors={[4]={0,1,0}}
+bagBonus()
+check(GameTooltipTextLeft5:GetText()=="+20 Stamina\n|cff00ff00+2 Strength|r",
+    "unenchanted green-armor item inserts after the native stat block")
+bagLink=savedBagLink
 layoutColors=nil
 layout={"Item", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
     "+5 Stamina", "Requires Level 80"}
