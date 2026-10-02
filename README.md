@@ -175,3 +175,10 @@ window/character/equipment invalidation, cold links, expired preload replies,
 and the 17-slot/rate/startup bounds. Actual tooltip sizing
 and interaction with installed addons still require an in-game check. Restart
 the client after installing an update.
+
+### 1.6.9: colored armor tooltip placement
+
+Native armor values stay with the base item stats even when shown in green.
+Arcana bonus lines appear after those stats and before enchantments. Localized
+armor templates, cold-cache placeholders and repeated tooltip rebuilds are
+covered by the Lua 5.1 UI regressions.
