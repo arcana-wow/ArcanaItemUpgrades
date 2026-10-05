@@ -39,6 +39,8 @@ local VALUE_LABELS = {
     FIRE_RES = "Fire Resistance", NATURE_RES = "Nature Resistance",
     FROST_RES = "Frost Resistance", SHADOW_RES = "Shadow Resistance",
     ARCANE_RES = "Arcane Resistance", FERAL_AP = "Feral Attack Power",
+    HOLY_SP = "Holy Spell Damage", FIRE_SP = "Fire Spell Damage", NATURE_SP = "Nature Spell Damage",
+    FROST_SP = "Frost Spell Damage", SHADOW_SP = "Shadow Spell Damage", ARCANE_SP = "Arcane Spell Damage",
 }
 
 local SOURCE_DEFINITIONS = {
@@ -108,7 +110,7 @@ end
 
 local frame = CreateFrame("Frame", "ArcanaItemUpgradesFrame", UIParent)
 frame:SetWidth(600)
-frame:SetHeight(520)
+frame:SetHeight(620)
 frame:SetPoint("CENTER")
 frame:SetFrameStrata("DIALOG")
 frame:SetMovable(true)
@@ -203,7 +205,7 @@ title:SetPoint("TOP", 0, -18)
 title:SetText("Arcana Item Upgrades")
 
 local subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-subtitle:SetPoint("TOP", title, "BOTTOM", 0, -7)
+subtitle:SetPoint("TOP", title, "BOTTOM", 0, -47)
 subtitle:SetText("Select equipped gear, then use one available upgrade source.")
 
 local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -212,17 +214,17 @@ close:SetPoint("TOPRIGHT", -5, -5)
 local refresh = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 refresh:SetWidth(88)
 refresh:SetHeight(22)
-refresh:SetPoint("TOPRIGHT", -38, -47)
+refresh:SetPoint("TOPRIGHT", -38, -91)
 refresh:SetText("Refresh")
 
 local status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("TOPLEFT", 23, -52)
+status:SetPoint("TOPLEFT", 23, -96)
 status:SetPoint("RIGHT", refresh, "LEFT", -10, 0)
 status:SetJustifyH("LEFT")
 status:SetText("Waiting for the realm...")
 
 local list = CreateFrame("Frame", nil, frame)
-list:SetPoint("TOPLEFT", 19, -80)
+list:SetPoint("TOPLEFT", 19, -120)
 list:SetWidth(562)
 list:SetHeight(300)
 list:SetBackdrop({
@@ -294,7 +296,9 @@ local upgradeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 upgradeButton:SetWidth(160)
 upgradeButton:SetHeight(26)
 upgradeButton:SetPoint("BOTTOMLEFT", 75, 23)
-upgradeButton:SetText("Upgrade")
+upgradeButton:SetText("Temper Item")
+frame.TemperingButton = upgradeButton
+frame.ServiceSubtitle = subtitle
 
 sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
 sourceFrame:SetWidth(400)
@@ -479,7 +483,8 @@ refresh:SetScript("OnClick", function()
 end)
 
 local function SelectedSlot(slot)
-    return state.slots[slot] or (frame.affixSlots and frame.affixSlots[slot])
+    return state.slots[slot] or (frame.affixSlots and frame.affixSlots[slot]) or
+        (frame.ascensionSlots and frame.ascensionSlots[slot])
 end
 
 function frame:SetAffixSlots(slots)
@@ -495,6 +500,11 @@ local function OrderedSlots()
     for _, slot in pairs(state.slots) do table.insert(ordered, slot) end
     for id, slot in pairs(frame.affixSlots or {}) do
         if not state.slots[id] then table.insert(ordered, slot) end
+    end
+    for id, slot in pairs(frame.ascensionSlots or {}) do
+        if not state.slots[id] and not (frame.affixSlots and frame.affixSlots[id]) then
+            table.insert(ordered, slot)
+        end
     end
     table.sort(ordered, function(a, b) return a.slot < b.slot end)
     return ordered
@@ -519,7 +529,8 @@ function frame:UpdateDisplay()
             row.arcanaSlot = slot.slot
             row.icon:SetTexture(GetInventoryItemTexture("player", inventorySlot))
             row.name:SetText(slot.name)
-            row.rank:SetText(slot.affixOnly and "Recalibration" or string.format("%d/%d", slot.rank, state.maxRank))
+            row.rank:SetText(self.ServiceRowStatus and self:ServiceRowStatus(slot) or
+                (slot.affixOnly and "Affix" or string.format("%d/%d", slot.rank or 0, state.maxRank)))
             if state.selected == slot.slot then row:LockHighlight() else row:UnlockHighlight() end
             row:Show()
         else
@@ -530,20 +541,23 @@ function frame:UpdateDisplay()
 
     local selected = SelectedSlot(state.selected)
     local allowed, reason = IsRemoteLocationAllowed()
-    if selected then
+    if selected and self.serviceTab and self.serviceTab ~= "Tempering" then
+        selectedText:SetText(selected.name or "Selected item")
+    elseif selected then
         selectedText:SetText((selected.name or "Selected item") .. " — " ..
             (selected.affixOnly and "Recalibration" or string.format("%d/%d", selected.rank, state.maxRank)))
     else
         selectedText:SetText("No eligible equipped items were reported by the realm.")
     end
     locationText:SetText(allowed and
-        "Remote upgrading is available here. The Item Upgrader NPC remains available in major cities." or reason)
+        "Available here and at Item Upgrader NPCs in major cities." or reason)
     locationText:SetTextColor(allowed and 0.4 or 1, allowed and 1 or 0.35, 0.35)
 
-    local canUpgrade = selected and not selected.affixOnly and selected.rank < state.maxRank and
+    local canUpgrade = selected and not selected.affixOnly and (selected.rank or 0) < state.maxRank and
         #AvailableSources(selected) > 0 and allowed
     if canUpgrade then upgradeButton:Enable() else upgradeButton:Disable() end
-    if not canUpgrade then sourceFrame:Hide() end
+    if not canUpgrade or (self.serviceTab and self.serviceTab ~= "Tempering") then sourceFrame:Hide() end
+    if self.ApplyServiceVisibility then self:ApplyServiceVisibility() end
 end
 
 scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
@@ -745,3 +759,5 @@ SLASH_ARCANAITEMUPGRADES2 = "/itemupgrades"
 SlashCmdList["ARCANAITEMUPGRADES"] = ToggleUpgradeFrame
 
 function frame:GetSelectedEquipmentSlot() return state.selected end
+
+function frame:RefreshTempering() RequestSync(true) end
