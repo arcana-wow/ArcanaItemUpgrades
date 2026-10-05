@@ -433,7 +433,12 @@ button:SetHeight(26)
 button:SetPoint("BOTTOMRIGHT", -65, 23)
 button:SetText("Recalibrate")
 button:Disable()
+frame.AffixControls = {button, bonusText}
 local function RefreshControls()
+    if frame.serviceTab and frame.serviceTab ~= "Affixes" then
+        button:Hide(); bonusText:Hide(); return
+    end
+    button:Show(); bonusText:Show()
     local slot = frame:GetSelectedEquipmentSlot()
     local row = slot and state.slots[slot]
     local text = row and P.Describe(row.packed)
@@ -672,3 +677,5 @@ events:SetScript("OnUpdate", function()
     if refreshTooltip then refreshTooltip = false; RefreshTooltip() end
     if refreshLootTooltip then refreshLootTooltip = false; RestoreLootTooltip(GameTooltip) end
 end)
+
+function frame:RefreshAffixes() Sync() end

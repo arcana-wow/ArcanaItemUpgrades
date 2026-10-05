@@ -206,3 +206,23 @@ corresponding server module update; old servers safely leave
 upgrade tooltip information unavailable. The equipped-item upgrade panel and
 NPC operations retain their existing protocol. Run `lua5.1 tests/upgrade_tooltip_test.lua`
 alongside the existing affix suites before packaging.
+
+
+## Three upgrade tabs (1.8.0)
+
+Open `/upgrades`, or choose **Item Upgrades** in ArcanaPartyDraft. **Tempering**
+raises the existing rank; **Affixes** recalibrates the independent bonus;
+**Ascension** raises item level through 200, 226, 245, 264 and 284. Select an
+equipped item, hover the next-tier preview, then confirm its token cost.
+Ascension requires level 80 and a safe location outside instances and combat.
+The Item Upgrades NPC supplies all three services and sells the tokens.
+
+Install the matching Ascension `patch-4.MPQ` while the client is closed. Native
+item links and inspection then show ascended stats, art, sockets and procs.
+The addon also resolves mixed-tier set bonuses from the realm for self and
+nearby inspection tooltips; cached responses are bounded and stale/spoofed
+responses are discarded. Server confirmation always validates the exact item.
+
+Run all `tests/*_test.lua` with Lua 5.1. The Ascension tests cover all tiers,
+three-tab behavior, confirmation, eligibility, stale selection/replies,
+timeouts, mixed-set descriptions and inspection ownership.
