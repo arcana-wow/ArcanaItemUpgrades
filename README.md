@@ -182,3 +182,27 @@ Native armor values stay with the base item stats even when shown in green.
 Arcana bonus lines appear after those stats and before enchantments. Localized
 armor templates, cold-cache placeholders and repeated tooltip rebuilds are
 covered by the Lua 5.1 UI regressions.
+
+### 1.7.0: exact-instance upgrade tooltips
+
+Equipment, bag and bank upgrade tooltips request the exact owned position with
+`CMD<TAB>ITEM<TAB>request<TAB>E|B<TAB>first<TAB>second<TAB>expected-entry`.
+Inventory positions are native client slots 1–74 with second=0; bag positions use the
+native bag ID and one-based slot (including bank bag -1). The server resolves
+ownership and eligibility, reads the rank by GUID, and returns `IBEGIN` with
+request, GUID, entry, rank, maximum rank, stat percent and armor percent.
+Existing STAT/VALUE/DAMAGE rows use `I<request>` instead of equipment slot;
+`IEND` publishes the complete result. `IMISS` represents unavailable/ineligible
+items, not rank zero. Requests are limited to 20 per second per player.
+
+Identical native links never share results across positions. Equipment/bag/bank
+changes, upgrade syncs and level changes invalidate pending and cached values.
+Delayed replies cannot annotate a moved item, another hover, or a closed tooltip.
+Requests expire after five seconds with at most three attempts per unchanged
+position. Unknown tooltips and other players do not borrow owned-item ranks.
+BEGIN advertises tooltip protocol version 2 in its fifth field. No hover
+requests are sent before that capability is received. This requires the
+corresponding server module update; old servers safely leave
+upgrade tooltip information unavailable. The equipped-item upgrade panel and
+NPC operations retain their existing protocol. Run `lua5.1 tests/upgrade_tooltip_test.lua`
+alongside the existing affix suites before packaging.
