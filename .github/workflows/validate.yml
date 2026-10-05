@@ -46,13 +46,14 @@ jobs:
           luac5.1 -p ./*.lua tests/*.lua
           lua5.1 tests/affix_protocol_test.lua
           lua5.1 tests/affix_ui_test.lua
+          lua5.1 tests/upgrade_tooltip_test.lua
 
       - name: Build install-ready archive
         shell: bash
         run: |
           set -euo pipefail
           install -d package/ArcanaItemUpgrades
-          install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua AffixProtocol.lua ArcanaItemAffixes.lua README.md LICENSE package/ArcanaItemUpgrades/
+          install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua AffixProtocol.lua ArcanaItemAffixes.lua UpgradeTooltips.lua README.md LICENSE package/ArcanaItemUpgrades/
           cd package
           zip -X -r ../ArcanaItemUpgrades.zip ArcanaItemUpgrades
 

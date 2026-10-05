@@ -578,7 +578,6 @@ local function UpdateSyncRetry()
     state.syncRetryAt = GetTime() + SYNC_RETRY_DELAYS[state.syncRetryIndex]
 end
 
-local RefreshVisibleTooltip
 
 
 frame:SetScript("OnShow", RequestSync)
@@ -692,7 +691,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             status:SetText("Up to date.")
             frame:UpdateDisplay()
             UpdateMinimapButtonIcon()
-            if RefreshVisibleTooltip then RefreshVisibleTooltip() end
         elseif fields[1] == "RESULT" then
             status:SetText(fields[2] or "Upgrade complete.")
             DEFAULT_CHAT_FRAME:AddMessage("|cffb48cffArcana Upgrades:|r " ..
@@ -715,9 +713,9 @@ end)
 local function AddUpgradeTooltip(tooltip, slot)
     if not slot then return end
     tooltip:AddLine(string.format("Arcana Upgrade: %d/%d", slot.rank,
-        state.maxRank), 0.71, 0.55, 1)
-    tooltip:AddLine(string.format("Stat bonus: +%d%%", slot.rank * state.percent), 0.4, 1, 0.4)
-    tooltip:AddLine(string.format("Armor bonus: +%d%%", slot.rank * state.armorPercent),
+        (slot.maxRank or state.maxRank)), 0.71, 0.55, 1)
+    tooltip:AddLine(string.format("Stat bonus: +%d%%", slot.rank * (slot.percent or state.percent)), 0.4, 1, 0.4)
+    tooltip:AddLine(string.format("Armor bonus: +%d%%", slot.rank * (slot.armorPercent or state.armorPercent)),
         0.4, 1, 0.4)
     if slot.rank > 0 and slot.values and #slot.values > 0 then
         tooltip:AddLine("Effective item values:", 0.96, 0.82, 0.25)
@@ -736,45 +734,11 @@ local function AddUpgradeTooltip(tooltip, slot)
     end
     tooltip:Show()
 end
-RefreshVisibleTooltip = function()
-    if not GameTooltip:IsShown() then return end
-    local owner = GameTooltip:GetOwner()
-    local serverSlot = owner and owner.arcanaSlot
-    local ownerName = owner and owner.GetName and owner:GetName()
-    if not serverSlot and ownerName and string.find(ownerName, "^Character") and owner.GetID then
-        local inventorySlot = owner:GetID()
-        if inventorySlot then serverSlot = inventorySlot - 1 end
-    end
-    if serverSlot and state.slots[serverSlot] then
-        GameTooltip:SetInventoryItem("player", serverSlot + 1)
-    end
-end
-
-
-GameTooltip:HookScript("OnTooltipSetItem", function(tooltip)
-    local _, link = tooltip:GetItem()
-    if not link then return end
-    local owner = tooltip:GetOwner()
-    local serverSlot = owner and owner.arcanaSlot
-    local ownerName = owner and owner.GetName and owner:GetName()
-    if not serverSlot and ownerName and string.find(ownerName, "^Character") and owner.GetID then
-        local inventorySlot = owner:GetID()
-        if inventorySlot then serverSlot = inventorySlot - 1 end
-    end
-    if serverSlot and state.slots[serverSlot] then
-        AddUpgradeTooltip(tooltip, state.slots[serverSlot])
-        return
-    end
-
-    local matched
-    for slotIndex, slot in pairs(state.slots) do
-        if GetInventoryItemLink("player", slotIndex + 1) == link then
-            if matched then return end
-            matched = slot
-        end
-    end
-    AddUpgradeTooltip(tooltip, matched)
-end)
+-- Tooltips use exact server-resolved instances; the equipment-panel snapshot
+-- must never be inferred from a matching native link.
+function frame:RenderUpgradeTooltip(tooltip, row) AddUpgradeTooltip(tooltip, row) end
+function frame:UpgradeStatLabel(id) return STAT_LABELS[id] or ("Item stat " .. tostring(id)) end
+function frame:UpgradeValueLabel(id) return VALUE_LABELS[id] or id end
 
 SLASH_ARCANAITEMUPGRADES1 = "/upgrades"
 SLASH_ARCANAITEMUPGRADES2 = "/itemupgrades"
