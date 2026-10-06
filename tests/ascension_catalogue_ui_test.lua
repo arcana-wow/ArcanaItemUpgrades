@@ -1,6 +1,7 @@
 local frames,named,sent={}, {}, {}
 local now=0
-local mouseDown,mouseOver,chatInsert=false,true,0
+local mouseDown,mouseOver,chatInsert,chatLinkClick=false,true,0,false
+function IsModifiedClick(kind) return kind=="CHATLINK" and chatLinkClick end
 function IsMouseButtonDown() return mouseDown end
 function MouseIsOver() return mouseOver end
 function ChatEdit_InsertLink() chatInsert=chatInsert+1;return "chat" end
@@ -151,8 +152,18 @@ host:Hide();check(not pane:IsShown());tick(10);check(not pane:IsShown())
 host:Show();host.serviceTab="Ascension";host:ApplyServiceVisibility()
 search:SetFocus()
 local itemLink="|cff0070dd|Hitem:873:0:0:0:0:0:0:0:80|h[Staff of Jordan]|h|r"
+-- Reproduce native input order: mouse-down, an update while held, then the
+-- bag button's OnClick on release. Focus must survive until link insertion.
+mouseOver=false;chatLinkClick=true;mouseDown=true;tick(10.1)
+check(search:HasFocus())
+mouseDown=false
 check(ChatEdit_InsertLink(itemLink)==true and chatInsert==0 and search:GetText()=="Staff of Jordan" and search:HasFocus())
+tick(10.2);check(search:HasFocus())
 tick(11);check(sent[#sent][2]:match("\t873$"))
+-- Modified clicks outside that do not insert an item still release focus.
+mouseDown=true;tick(11.1);check(search:HasFocus())
+mouseDown=false;tick(11.2);check(not search:HasFocus())
+chatLinkClick=false;search:SetFocus()
 search:SetText("Staff of Jorda");tick(12);check(sent[#sent][2]:match("\tstaff of jorda$"))
 search:ClearFocus();check(ChatEdit_InsertLink(itemLink)=="chat" and chatInsert==1)
 search:SetFocus();check(ChatEdit_InsertLink("|Hspell:1|h[Spell]|h")=="chat" and chatInsert==2)

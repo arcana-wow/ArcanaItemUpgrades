@@ -3,7 +3,7 @@ if not host or not P then return end
 local state=P.New()
 state.serial=math.floor(GetTime()*1000)%1000000000
 local selected,hovered,retryUntil,retryAt,openEntry
-local direct, pastedEntry, pastedName
+local direct, pastedEntry, pastedName, pendingOutsideLinkClick
 local pane=CreateFrame("Frame","ArcanaAscensionCatalogue",host)
 pane:SetPoint("TOPLEFT",19,-120);pane:SetPoint("BOTTOMRIGHT",host,"TOPRIGHT",-19,-562)
 pane:SetFrameLevel(host:GetFrameLevel()+20)
@@ -43,7 +43,7 @@ local rows,cards={},{}
 local Render,Compare,Preview
 local function Close(keepFocus)
     local hadPreview=hovered or pane:IsShown()
-    selected=nil;hovered=nil;openEntry=nil;retryAt=nil;direct=nil
+    selected=nil;hovered=nil;openEntry=nil;retryAt=nil;direct=nil;pendingOutsideLinkClick=nil
     if hadPreview then GameTooltip:Hide() end
     pane:Hide();P.Cancel(state)
     if keepFocus~=true then search:ClearFocus() end
@@ -246,6 +246,7 @@ if insertLink then
     ChatEdit_InsertLink=function(link,...)
         local entry=type(link)=="string" and tonumber(link:match("|Hitem:(%d+)"))
         if entry and host:IsShown() and host.serviceTab=="Ascension" and search:HasFocus() then
+            pendingOutsideLinkClick=nil
             pastedEntry=entry
             pastedName=link:match("|h%[(.-)%]|h") or GetItemInfo(entry) or tostring(entry)
             search:SetText(pastedName);search:SetCursorPosition(#pastedName)
@@ -272,7 +273,15 @@ events:SetScript("OnUpdate",function()
     -- EditBox focus otherwise survives clicks on many native frames. An edge
     -- check also works when the empty search has no catalogue pane open.
     local down=IsMouseButtonDown and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
-    if down and not mouseDown and search:HasFocus() and not MouseIsOver(search) then search:ClearFocus() end
+    if down and not mouseDown and search:HasFocus() and not MouseIsOver(search) then
+        -- Native bag buttons insert links on mouse release. Keep focus through
+        -- CHATLINK mouse-down so their OnClick can reach our insertion handler.
+        if IsModifiedClick and IsModifiedClick("CHATLINK") then pendingOutsideLinkClick=true
+        else search:ClearFocus() end
+    elseif not down and mouseDown and pendingOutsideLinkClick then
+        -- No item link consumed this click (for example, Shift-clicking terrain).
+        pendingOutsideLinkClick=nil;search:ClearFocus()
+    end
     mouseDown=down
     if not pane:IsShown() or not host:IsShown() then return end
     local request,changed=P.Tick(state,GetTime())

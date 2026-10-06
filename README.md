@@ -278,6 +278,8 @@ items opens comparison directly without changing the search field. Clearing
 the field cancels the search while preserving focus; clicking outside or Escape
 releases it. Shift-clicking an item while focused inserts its name and performs
 an exact item-ID lookup through the existing 500 ms debounce and bounded cache.
+Focus survives the native Shift-click mouse press until the item link is inserted
+on release; modified clicks outside that insert no item still release focus.
 
 The unchecked-by-default **Compare items** box beside the preview button enables
 current equipment on the left and the next Ascension template on the right. The
