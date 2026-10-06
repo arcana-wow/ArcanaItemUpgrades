@@ -3,11 +3,12 @@ if not host or not P then return end
 local state=P.New()
 state.serial=math.floor(GetTime()*1000)%1000000000
 local selected,hovered,retryUntil,retryAt,openEntry
+local direct, pastedEntry, pastedName
 local pane=CreateFrame("Frame","ArcanaAscensionCatalogue",host)
 pane:SetPoint("TOPLEFT",19,-120);pane:SetPoint("BOTTOMRIGHT",host,"TOPRIGHT",-19,-562)
 pane:SetFrameLevel(host:GetFrameLevel()+20)
 pane:EnableMouse(true)
-pane:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+pane:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
     tile=true,tileSize=16,edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
 pane:SetBackdropColor(0.03,0.03,0.03,1);pane:Hide()
 local search=CreateFrame("EditBox","ArcanaAscensionSearch",host,"InputBoxTemplate")
@@ -30,7 +31,8 @@ local function Button(name,text,x)
     button:SetSize(96,24);button:SetPoint("BOTTOMLEFT",x,10);button:SetText(text)
     return button
 end
-local back=Button("ArcanaCatalogueBack","My equipment",12)
+local back=Button("ArcanaCatalogueBack","Results",12)
+back:Hide()
 local previous=Button("ArcanaCataloguePrevious","Previous",344)
 local nextPage=Button("ArcanaCatalogueNext","Next",444)
 local scroll=CreateFrame("ScrollFrame","ArcanaCatalogueComparisonScroll",pane,"UIPanelScrollFrameTemplate")
@@ -39,13 +41,14 @@ local child=CreateFrame("Frame",nil,scroll);child:SetSize(514,1);scroll:SetScrol
 local probe=CreateFrame("GameTooltip","ArcanaCatalogueProbe",UIParent,"GameTooltipTemplate")
 local rows,cards={},{}
 local Render,Compare,Preview
-local function Close()
+local function Close(keepFocus)
     local hadPreview=hovered or pane:IsShown()
-    selected=nil;hovered=nil;openEntry=nil;retryAt=nil
+    selected=nil;hovered=nil;openEntry=nil;retryAt=nil;direct=nil
     if hadPreview then GameTooltip:Hide() end
-    pane:Hide();search:ClearFocus();P.Cancel(state)
+    pane:Hide();P.Cancel(state)
+    if keepFocus~=true then search:ClearFocus() end
 end
-close:SetScript("OnClick",Close)
+close:SetScript("OnClick",function() Close() end)
 local function Details(row) return P.Detail(state,row,GetTime()) end
 local function SetPreview(tooltip,row,entry)
     local data=Details(row)
@@ -55,9 +58,9 @@ Preview=function(button)
     if not button.row then return end
     local row=button.row
     GameTooltip:SetOwner(button,"ANCHOR_RIGHT")
-    GameTooltip:SetHyperlink(P.Link(row,P.Next(row)))
-    SetPreview(GameTooltip,row,P.Next(row))
-    GameTooltip:AddLine("Next Ascension - click to compare all versions",1,0.82,0,true)
+    GameTooltip:SetHyperlink(P.Link(row,row.source))
+    SetPreview(GameTooltip,row,row.source)
+    GameTooltip:AddLine("Click to view all versions",1,0.82,0,true)
     GameTooltip:Show()
 end
 local function TooltipLines(row,entry)
@@ -93,7 +96,8 @@ end
 Compare=function()
     if not selected then return end
     for _,row in ipairs(rows) do row:Hide() end
-    message:SetText("");previous:Hide();nextPage:Hide();back:SetText("Results")
+    message:SetText("");previous:Hide();nextPage:Hide()
+    if direct then back:Hide() else back:Show() end
     title:SetText(selected.name.." - all available versions")
     footer:SetText(state.error or "Base item previews; personal Affixes and Tempering vary.")
     footer:ClearAllPoints();footer:SetPoint("BOTTOMLEFT",116,15);footer:SetWidth(432)
@@ -107,7 +111,7 @@ Compare=function()
         local card=cards[index]
         if not card then
             card=CreateFrame("Frame",nil,child);card:SetWidth(252);card.lines={};card.sockets={}
-            card:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+            card:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
                 tile=true,tileSize=16,edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
             card:SetBackdropColor(0.05,0.05,0.08,1)
             card.heading=card:CreateFontString(nil,"OVERLAY","GameFontNormal")
@@ -153,9 +157,17 @@ Render=function()
         openEntry=nil
     end
     if selected then Compare();return end
-    scroll:Hide();previous:Show();nextPage:Show();back:SetText("My equipment")
+    scroll:Hide();back:Hide()
+    if direct then
+        previous:Hide();nextPage:Hide();footer:SetText("")
+        title:SetText("All available versions")
+        message:SetText(state.error or (state.result and "No matching Ascension items." or "Loading item versions..."))
+        for _,button in ipairs(rows) do button:Hide() end
+        return
+    end
+    previous:Show();nextPage:Show()
     footer:ClearAllPoints();footer:SetPoint("BOTTOMLEFT",113,18);footer:SetWidth(226)
-    title:SetText("Original items - hover to preview; click to compare all versions.")
+    title:SetText("Click to view all versions")
     local result=state.result
     message:SetText(state.error or (not result and "Searching..." or result.total==0 and "No matching Ascension items." or ""))
     for index,button in ipairs(rows) do
@@ -191,9 +203,9 @@ for index=1,20 do
     rows[index]=button
 end
 local function Search(page)
-    selected=nil;hovered=nil;openEntry=nil;GameTooltip:Hide();retryAt=nil
-    P.Query(state,search:GetText(),GetTime(),page)
-    if state.query=="" then Close();return end
+    selected=nil;hovered=nil;openEntry=nil;direct=nil;GameTooltip:Hide();retryAt=nil
+    P.Query(state,pastedEntry and tostring(pastedEntry) or search:GetText(),GetTime(),page)
+    if state.query=="" then Close(true);return end
     pane:Show();Render()
 end
 function host:OpenAscensionEquipment(slot)
@@ -201,17 +213,19 @@ function host:OpenAscensionEquipment(slot)
     local entry=self:GetAscensionCatalogueEntry(slot)
     if not entry then return end
     Close()
-    search:SetText(tostring(entry))
-    -- SetText queues the same debounced, bounded ID search as typed input.
-    openEntry=entry;pane:Show();Render()
+    -- Keep the edit box and any typed search intact. The same bounded protocol
+    -- performs an exact family lookup and opens comparison without a result list.
+    P.Query(state,tostring(entry),GetTime(),0)
+    direct=true;openEntry=entry;pane:Show();Render()
 end
 search:SetScript("OnTextChanged",function(self)
+    if self:GetText()~=pastedName then pastedEntry=nil;pastedName=nil end
     if self:GetText()=="" then placeholder:Show() else placeholder:Hide() end
     if self:GetText():find("%S") then browse:Enable() else browse:Disable() end
     if host:IsShown() and host.serviceTab=="Ascension" then Search(0) end
 end)
 search:SetScript("OnEnterPressed",function(self) self:ClearFocus();Search(0) end)
-search:SetScript("OnEscapePressed",Close)
+search:SetScript("OnEscapePressed",function() Close() end)
 browse:SetScript("OnClick",function() search:ClearFocus();Search(0) end)
 back:SetScript("OnClick",function()
     hovered=nil;GameTooltip:Hide()
@@ -224,7 +238,23 @@ local function Visibility()
     else search:Hide();browse:Hide();Close() end
 end
 hooksecurefunc(host,"ApplyServiceVisibility",Visibility)
-host:HookScript("OnHide",Close)
+host:HookScript("OnHide",function() Close() end)
+-- This is the same insertion path used by bag/equipment shift-clicks. Return
+-- handled only while our search owns focus; otherwise preserve normal chat.
+local insertLink=ChatEdit_InsertLink
+if insertLink then
+    ChatEdit_InsertLink=function(link,...)
+        local entry=type(link)=="string" and tonumber(link:match("|Hitem:(%d+)"))
+        if entry and host:IsShown() and host.serviceTab=="Ascension" and search:HasFocus() then
+            pastedEntry=entry
+            pastedName=link:match("|h%[(.-)%]|h") or GetItemInfo(entry) or tostring(entry)
+            search:SetText(pastedName);search:SetCursorPosition(#pastedName)
+            return true
+        end
+        return insertLink(link,...)
+    end
+end
+local mouseDown=false
 local events=CreateFrame("Frame")
 events:RegisterEvent("CHAT_MSG_ADDON");events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
@@ -239,6 +269,11 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
     end
 end)
 events:SetScript("OnUpdate",function()
+    -- EditBox focus otherwise survives clicks on many native frames. An edge
+    -- check also works when the empty search has no catalogue pane open.
+    local down=IsMouseButtonDown and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
+    if down and not mouseDown and search:HasFocus() and not MouseIsOver(search) then search:ClearFocus() end
+    mouseDown=down
     if not pane:IsShown() or not host:IsShown() then return end
     local request,changed=P.Tick(state,GetTime())
     if request then SendAddonMessage("AAS",request,"WHISPER",UnitName("player")) end

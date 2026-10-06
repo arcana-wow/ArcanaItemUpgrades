@@ -43,6 +43,32 @@ local VALUE_LABELS = {
     FROST_SP = "Frost Spell Damage", SHADOW_SP = "Shadow Spell Damage", ARCANE_SP = "Arcane Spell Damage",
 }
 
+local function EquipStatValue(fields)
+    local aura,misc,base,effective=tonumber(fields[3]),tonumber(fields[4]),tonumber(fields[5]),tonumber(fields[6])
+    if not aura or not misc or not base or not effective or base~=base or effective~=effective or
+        math.abs(base)>2147483647 or math.abs(effective)>2147483647 then return end
+    local label=({[34]="Health",[35]="Power",[84]="Health Regeneration",[85]="Power Regeneration",
+        [99]="Attack Power",[124]="Ranged Attack Power",[135]="Healing",[158]="Block Value",[123]="Spell Penetration"})[aura]
+    if aura==29 then label=({[-1]="All Stats",[0]="Strength",[1]="Agility",[2]="Stamina",[3]="Intellect",[4]="Spirit"})[misc]
+    elseif (aura==35 or aura==85) and misc==0 then label=aura==35 and "Mana" or "Mana per 5 sec"
+    elseif aura==13 or aura==22 or aura==143 then
+        local school=({[1]="Physical",[2]="Holy",[4]="Fire",[8]="Nature",[16]="Frost",[32]="Shadow",[64]="Arcane",[126]="Spell"})[misc] or "Combined School"
+        label=school..(aura==13 and " Damage" or " Resistance")
+        if misc==1 and aura~=13 then label="Armor" end
+    elseif aura==189 then
+        local names={"Weapon Skill","Defense","Dodge","Parry","Block","Melee Hit","Ranged Hit","Spell Hit",
+            "Melee Crit","Ranged Crit","Spell Crit","Melee Hit Avoidance","Ranged Hit Avoidance","Spell Hit Avoidance",
+            "Melee Crit Avoidance","Ranged Crit Avoidance","Spell Crit Avoidance","Melee Haste","Ranged Haste","Spell Haste",
+            "Main-hand Skill","Off-hand Skill","Ranged Skill","Expertise","Armor Penetration"}
+        local ratings={}
+        for index,name in ipairs(names) do if math.floor(misc/2^(index-1))%2==1 then ratings[#ratings+1]=name end end
+        label=table.concat(ratings," / ").." Rating"
+    end
+    if not label then return end
+    if aura==123 then base=-base;effective=-effective end
+    return {label=label,base=base,effective=effective}
+end
+
 local SOURCE_DEFINITIONS = {
     { key = "UNCOMMON_MATCH", count = "uncommonMatching", entry = "uncommonEntry" },
     { key = "RARE_WILD", count = "rareWildcard", entry = "rareWildcardEntry" },
@@ -551,11 +577,8 @@ function frame:UpdateDisplay()
 
     local selected = SelectedSlot(state.selected)
     local allowed, reason = IsRemoteLocationAllowed()
-    if selected and self.serviceTab and self.serviceTab ~= "Tempering" then
+    if selected then
         selectedText:SetText(selected.name or "Selected item")
-    elseif selected then
-        selectedText:SetText((selected.name or "Selected item") .. " — " ..
-            ((selected.affixOnly or selected.rank == nil) and "Unavailable" or string.format("%d/%d", selected.rank, state.maxRank)))
     else
         selectedText:SetText("No eligible equipped items were reported by the realm.")
     end
@@ -706,6 +729,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 table.insert(slot.values, { label = VALUE_LABELS[fields[3]] or fields[3],
                     base = tonumber(fields[4]), effective = tonumber(fields[5]) })
             end
+        elseif fields[1] == "EQUIP" then
+            local slot = state.slots[tonumber(fields[2])]
+            local value = EquipStatValue(fields)
+            if slot and value then table.insert(slot.values, value) end
         elseif fields[1] == "DAMAGE" then
             local slot = state.slots[tonumber(fields[2])]
             if slot then
@@ -768,6 +795,7 @@ end
 function frame:RenderUpgradeTooltip(tooltip, row) AddUpgradeTooltip(tooltip, row) end
 function frame:UpgradeStatLabel(id) return STAT_LABELS[id] or ("Item stat " .. tostring(id)) end
 function frame:UpgradeValueLabel(id) return VALUE_LABELS[id] or id end
+function frame:UpgradeEquipValue(fields) return EquipStatValue(fields) end
 
 SLASH_ARCANAITEMUPGRADES1 = "/upgrades"
 SLASH_ARCANAITEMUPGRADES2 = "/itemupgrades"

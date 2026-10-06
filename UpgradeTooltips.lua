@@ -88,6 +88,9 @@ local function Receive(message)
         if (f[1] == "STAT" or f[1] == "VALUE") and tonumber(f[4]) and tonumber(f[5]) then
             values[#values + 1] = {label=f[1] == "STAT" and frame:UpgradeStatLabel(tonumber(f[3])) or
                 frame:UpgradeValueLabel(f[3]), base=tonumber(f[4]), effective=tonumber(f[5])}
+        elseif f[1] == "EQUIP" then
+            local value=frame:UpgradeEquipValue(f)
+            if value then values[#values+1]=value end
         elseif f[1] == "DAMAGE" and tonumber(f[4]) and tonumber(f[5]) and tonumber(f[6]) and tonumber(f[7]) then
             values[#values + 1] = {label=tonumber(f[3]) == 0 and "Weapon Damage" or
                 ("Weapon Damage " .. tostring((tonumber(f[3]) or 0) + 1)), damage=true,

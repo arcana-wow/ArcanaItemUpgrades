@@ -274,7 +274,7 @@ local host=ArcanaItemUpgradesFrame
 host.serviceTab="Tempering";host:UpdateDisplay()
 local unavailable=false
 for _,f in ipairs(frames) do if f.text and f.text:find(" — Unavailable",1,true) then unavailable=true end end
-check(unavailable,"affix-only selection is Unavailable in Tempering, not Recalibration")
+check(not unavailable,"selected title contains only the item name")
 check(host.TemperingButton.point[1]=="TOP" and host.TemperingButton.point[2]==host.ServiceEligibilityText and host.TemperingButton.point[4]==0,
     "temper action is centered immediately beneath eligibility")
 local opened
@@ -285,4 +285,18 @@ check(row~=nil,"equipped item is available for comparison")
 row.scripts.OnDoubleClick(row,"LeftButton");check(opened==nil,"tempering double-click never opens Ascension")
 host.serviceTab="Ascension";row.scripts.OnDoubleClick(row,"RightButton");check(opened==nil,"right-click does not compare")
 row.scripts.OnDoubleClick(row,"LeftButton");check(opened==5,"Ascension double-click compares the equipped slot")
+tooltip:SetBagItem(0,10);local equipRequest=latest()
+receive("IBEGIN\t"..equipRequest.."\t112\t6468\t5\t5\t5\t2")
+receive("EQUIP\tI"..equipRequest.."\t99\t0\t40\t50")
+receive("EQUIP\tI"..equipRequest.."\t124\t0\t40\t50")
+receive("EQUIP\tI"..equipRequest.."\t123\t126\t-20\t-25")
+receive("EQUIP\tI"..equipRequest.."\t42\t0\t325\t406") -- Proc is not a stat.
+receive("IEND\t"..equipRequest)
+check(rank(5) and has("Attack Power:") and has("Ranged Attack Power:") and has("Spell Penetration:"),"permanent equip stats appear in owned-item tooltips")
+local fields={"EQUIP","I1","29","3","40","50"}
+check(host:UpgradeEquipValue(fields).label=="Intellect","primary equip stat label")
+fields[3]="22";fields[4]="1";check(host:UpgradeEquipValue(fields).label=="Armor","equip armor label")
+fields[3]="13";fields[4]="4";check(host:UpgradeEquipValue(fields).label=="Fire Damage","school spell damage label")
+fields[3]="99";fields[5]="nan";check(host:UpgradeEquipValue(fields)==nil,"invalid equip amount rejected")
+fields[5]="1e100";check(host:UpgradeEquipValue(fields)==nil,"unbounded equip amount rejected")
 print("PASS: "..checks.." upgrade tooltip integration checks (Lua 5.1)")
