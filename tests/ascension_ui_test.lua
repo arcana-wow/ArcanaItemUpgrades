@@ -45,7 +45,7 @@ function host:RefreshAffixes() self.affixesRefreshed=true end
 GameTooltip=CreateFrame("Tooltip")
 StaticPopupDialogs={};ACCEPT="Accept";CANCEL="Cancel"
 function StaticPopup_Hide() popup=nil end
-function StaticPopup_Show(kind,a,b,data) popup={kind=kind,data=data} end
+function StaticPopup_Show(kind,a,b,data) popup={kind=kind,data=data,text=string.format(StaticPopupDialogs[kind].text,a,b)} end
 function SendAddonMessage(prefix,message,channel,sender) sent[#sent+1]={prefix,message,channel,sender} end
 function UnitName() return "Tester" end
 function UnitLevel() return level end
@@ -115,6 +115,16 @@ check(host:ServiceEligibility({slot=15,affixOnly=true},true,nil,5)=="Unavailable
 check(host:ServiceEligibility({slot=15,rank=5},true,nil,5)=="Maximum tempering rank reached (5/5).")
 check(host:ServiceEligibility({slot=15,rank=1},false,"You must be alive.",5)=="You must be alive.")
 now=1.3;host:SetServiceTab("Ascension");snapshot()
+-- Native StaticPopup supports two text arguments: every tier must format
+-- the selected item, its target level and matching token without an extra slot.
+for index,level in ipairs({200,226,245,264,284}) do
+    local tokenID=194699+index
+    snapshot("ITEM\t15\t123\t9425\t44\t500000\t"..tokenID.."\t2")
+    button.scripts.OnClick()
+    check(popup.text:find(link.." to item level "..level.."?",1,true) and
+        popup.text:find("|Hitem:"..tokenID.."|h["..ArcanaAscensionProtocol.Names[tokenID].." Ascension Token]",1,true))
+end
+snapshot()
 button.scripts.OnClick();check(popup and popup.kind=="ARCANA_ASCENSION_CONFIRM")
 local selected=popup.data
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM.OnAccept({},selected)

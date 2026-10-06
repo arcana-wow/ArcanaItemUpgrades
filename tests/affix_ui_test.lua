@@ -82,7 +82,7 @@ local relic="|Hitem:40711:0:0:0:0:0:0:0:80|h[Relic]|h"
 local boots="|Hitem:10411:1:0:0:0:0:0:0:24|h[Footpads of the Fang]|h"
 local links={[11]=ring, [18]=relic, [8]=boots}
 function GetInventoryItemLink(unit, slot) return links[slot] end
-function StaticPopup_Show(kind, a,b,data) popup={kind=kind,data=data} end
+function StaticPopup_Show(kind, a,b,data) popup={kind=kind,data=data,text=string.format(StaticPopupDialogs[kind].text,a,b)} end
 local layoutColors
 local layout={"Footpads of the Fang", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
     "+5 Stamina", "Durability 44 / 45", "Requires Level 18", "", "Embrace of the Viper (3/5)",

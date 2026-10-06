@@ -452,7 +452,7 @@ local function RefreshControls()
     if ready and text and Allowed() and sigils > 0 and not paying then button:Enable() else button:Disable() end
 end
 StaticPopupDialogs["ARCANA_AFFIX_CONFIRM"] = {
-    text="Consume one Arcana Recalibration Sigil to reroll %s on %s? The new stat will be different and its amount may be lower.",
+    text="Recalibrate %s and reroll its %s stat?",
     button1=ACCEPT, button2=CANCEL, timeout=0, whileDead=false, hideOnEscape=true, preferredIndex=3,
     OnAccept=function(self, data)
         if not data or paying then return end
@@ -466,7 +466,7 @@ button:SetScript("OnClick", function()
     local row = slot and state.slots[slot]
     local link = slot and GetInventoryItemLink("player", slot + 1)
     if not P.Matches(row, link) or not Allowed() or not P.Describe(row.packed) then Sync(); return end
-    StaticPopup_Show("ARCANA_AFFIX_CONFIRM", P.Describe(row.packed), link,
+    StaticPopup_Show("ARCANA_AFFIX_CONFIRM", link, P.Describe(row.packed),
         {slot=slot, guid=row.guid, revision=row.revision})
 end)
 hooksecurefunc(frame, "UpdateDisplay", RefreshControls)
