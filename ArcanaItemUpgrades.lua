@@ -272,6 +272,12 @@ for index = 1, VISIBLE_ROWS do
             ShowSourceChooser()
         end
     end)
+    row:SetScript("OnDoubleClick", function(self, button)
+        if button == "LeftButton" and frame.serviceTab == "Ascension" and self.arcanaSlot and frame.OpenAscensionEquipment then
+            GameTooltip:Hide()
+            frame:OpenAscensionEquipment(self.arcanaSlot)
+        end
+    end)
     row:SetScript("OnEnter", function(self)
         if not self.arcanaSlot then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -295,11 +301,12 @@ locationText:SetJustifyH("LEFT")
 local upgradeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 upgradeButton:SetWidth(160)
 upgradeButton:SetHeight(26)
-upgradeButton:SetPoint("BOTTOMLEFT", 75, 23)
+upgradeButton:SetPoint("TOP", locationText, "BOTTOM", 0, -14)
 upgradeButton:SetText("Temper Item")
 frame.TemperingButton = upgradeButton
 frame.ServiceSubtitle = subtitle
 frame.ServiceStatus = status
+frame.ServiceEligibilityText = locationText
 
 sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
 sourceFrame:SetWidth(400)
@@ -548,15 +555,20 @@ function frame:UpdateDisplay()
         selectedText:SetText(selected.name or "Selected item")
     elseif selected then
         selectedText:SetText((selected.name or "Selected item") .. " — " ..
-            (selected.affixOnly and "Recalibration" or string.format("%d/%d", selected.rank, state.maxRank)))
+            ((selected.affixOnly or selected.rank == nil) and "Unavailable" or string.format("%d/%d", selected.rank, state.maxRank)))
     else
         selectedText:SetText("No eligible equipped items were reported by the realm.")
     end
-    locationText:SetText(allowed and
-        "Available here and at Item Upgrader NPCs in major cities." or reason)
-    locationText:SetTextColor(allowed and 0.4 or 1, allowed and 1 or 0.35, 0.35)
+    local eligibility, eligible = reason, false
+    if self.ServiceEligibility then
+        eligibility, eligible = self:ServiceEligibility(selected, allowed, reason, state.maxRank)
+    elseif allowed and selected and selected.rank and selected.rank < state.maxRank then
+        eligibility, eligible = string.format("Eligible for tempering to rank %d/%d", selected.rank + 1, state.maxRank), true
+    end
+    locationText:SetText(eligibility or "Unavailable")
+    locationText:SetTextColor(eligible and 0.4 or 1, eligible and 1 or 0.35, 0.35)
 
-    local canUpgrade = selected and not selected.affixOnly and (selected.rank or 0) < state.maxRank and
+    local canUpgrade = selected and selected.rank ~= nil and not selected.affixOnly and selected.rank < state.maxRank and
         #AvailableSources(selected) > 0 and allowed
     if canUpgrade then upgradeButton:Enable() else upgradeButton:Disable() end
     if not canUpgrade or (self.serviceTab and self.serviceTab ~= "Tempering") then sourceFrame:Hide() end

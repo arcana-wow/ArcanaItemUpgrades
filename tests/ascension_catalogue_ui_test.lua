@@ -13,9 +13,21 @@ function methods:GetText() return self.text or "" end
 function methods:SetTextColor(...) self.color={...} end
 function methods:GetTextColor() return unpack(self.color or {1,1,1}) end
 function methods:GetStringHeight() return 12 end
+function methods:SetPoint(...) self.point={...} end
+function methods:GetPoint() return unpack(self.point or {}) end
+function methods:GetNumPoints() return self.point and 1 or 0 end
+function methods:SetSize(width,height) self.width=width;self.height=height end
+function methods:SetWidth(width) self.width=width end
+function methods:GetObjectType() return self.kind end
+function methods:SetTexture(path) self.texture=path end
+function methods:GetTexture() return self.texture end
+function methods:SetTexCoord(...) self.coords={...} end
+function methods:GetTexCoord() return unpack(self.coords or {0,1,0,1}) end
+function methods:GetRegions() return unpack(self.regions or {}) end
 function methods:GetName() return self.name end
 function methods:GetFrameLevel() return 5 end
 function methods:CreateFontString() return CreateFrame("Font",nil,self) end
+function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
 function methods:SetOwner(owner) self.owner=owner end
 function methods:NumLines() return self.count or 0 end
 function methods:AddLine(text)
@@ -24,10 +36,20 @@ function methods:AddLine(text)
 end
 function methods:SetHyperlink(link)
     self.link=link;self.count=0
-    self:AddLine("Item "..link:match("item:(%d+)"));self:AddLine("+100 Intellect");self:AddLine("Red Socket")
+    self:AddLine("Item "..link:match("item:(%d+)"));self:AddLine("+100 Intellect")
+    self.regions={}
+    -- Localized text; art comes from native texture anchors, not an English match.
+    for index,color in ipairs({"Red","Meta","Blue"}) do
+        self:AddLine("Localized socket "..index)
+        local texture=self:CreateTexture()
+        texture:SetTexture("Interface\\ItemSocketingFrame\\UI-EmptySocket-"..color)
+        texture:SetPoint("LEFT",_G[self.name.."TextLeft"..self.count],"LEFT",-20,0)
+        self.regions[index]=texture
+    end
+    self.regions[3]:Hide() -- A pooled, hidden texture must not leak into the card.
 end
 function CreateFrame(kind,name,parent)
-    local f=setmetatable({name=name,parent=parent,scripts={}},{__index=function(_,key)
+    local f=setmetatable({name=name,parent=parent,kind=kind,scripts={}},{__index=function(_,key)
         return methods[key] or (key:match("^[A-Z]") and function() end)
     end})
     frames[#frames+1]=f;if name then named[name]=f;_G[name]=f end;return f
@@ -42,6 +64,9 @@ GameTooltip=CreateFrame("Tooltip","GameTooltip")
 ITEM_QUALITY_COLORS={[3]={r=0,g=0.4,b=1},[4]={r=0.7,g=0,b=1},[5]={r=1,g=0.5,b=0}}
 local host=CreateFrame("Frame","ArcanaItemUpgradesFrame")
 host.serviceTab="Ascension";host.ServiceStatus=CreateFrame("Font")
+host.AscensionButton=CreateFrame("Button")
+local equipmentEntry=500004
+function host:GetAscensionCatalogueEntry() return equipmentEntry end
 function host:ApplyServiceVisibility() end
 local previews={}
 function ArcanaAscensionSetPreview(tooltip,rows) previews[#previews+1]={tooltip=tooltip,rows=rows} end
@@ -58,6 +83,10 @@ local function result(id)
     receive("CATEND\t"..id)
 end
 check(search:IsShown() and not pane:IsShown())
+check(search.point[2]==host.AscensionButton and search.point[3]=="BOTTOM")
+check(not named.ArcanaAscensionBrowse.enabled)
+named.ArcanaAscensionBrowse.scripts.OnClick();tick(0.6);check(#sent==0 and not pane:IsShown())
+now=0
 search:SetText("s");check(pane:IsShown() and #sent==0)
 tick(0.49);check(#sent==0)
 search:SetText("st");tick(0.99);check(#sent==1 and sent[1][2]=="SEARCH\t1\t0\tst")
@@ -65,7 +94,7 @@ receive("CATBEGIN\t1\t0\t0","Spoof");receive("CATEND\t1","Spoof")
 local row
 for _,candidate in ipairs(frames) do if candidate.parent==pane and candidate.scripts.OnEnter then row=candidate;break end end
 check(row and not row:IsShown())
-result(1);check(row:IsShown() and row.row.source==873 and row.name.text=="Staff of Jordan")
+result(1);check(row:IsShown() and row.row.source==873 and row.name.text=="Staff of Jordan" and not row.level)
 row.scripts.OnEnter(row)
 check(GameTooltip.link=="item:500001:0:0:0:0:0:0:0:80") -- Hover previews the next tier, not the original.
 row.scripts.OnClick(row)
@@ -75,16 +104,36 @@ for _,candidate in ipairs(frames) do
     if candidate.heading then headings[#headings+1]=candidate.heading.text end
 end
 check(#headings==6 and headings[1]=="Original (ilvl 40)" and headings[6]=="Ascended - ilvl 284")
+local copied=0
+for _,candidate in ipairs(frames) do
+    if candidate.heading then
+        check(candidate.sockets[3].texture=="Interface\\ItemSocketingFrame\\UI-EmptySocket-Red")
+        check(candidate.sockets[4].texture=="Interface\\ItemSocketingFrame\\UI-EmptySocket-Meta")
+        check(not candidate.sockets[5] and candidate.lines[3].point[2]==28)
+        copied=copied+1
+    end
+end
+check(copied==6)
 tick(1.6);check(sent[#sent][2]=="DETAIL\t2\t873\t0")
 receive("CATDETAILBEGIN\t2");receive("CATDETAILEND\t2")
 check(previews[#previews].rows~=nil)
 named.ArcanaCatalogueBack.scripts.OnClick();check(row:IsShown())
-named.ArcanaCatalogueBack.scripts.OnClick();check(not pane:IsShown())
+named.ArcanaCatalogueClose.scripts.OnClick();check(not pane:IsShown())
 named.ArcanaAscensionBrowse.scripts.OnClick();check(row:IsShown()) -- Cached query.
-search:SetText("");tick(2.2);check(sent[#sent][2]=="SEARCH\t3\t0\t")
+row.scripts.OnClick(row);named.ArcanaCatalogueClose.scripts.OnClick();check(not pane:IsShown())
+local count=#sent
+search:SetText("");tick(2.2);check(#sent==count and not pane:IsShown())
+search:SetText("   ");tick(3);check(#sent==count and not pane:IsShown() and not named.ArcanaAscensionBrowse.enabled)
+host:OpenAscensionEquipment(15);tick(3.49);check(#sent==count)
+tick(3.51);check(sent[#sent][2]=="SEARCH\t3\t0\t500004")
+result(3);check(named.ArcanaCatalogueComparisonScroll:IsShown() and not row:IsShown())
+check(named.ArcanaCatalogueClose:IsShown())
+named.ArcanaCatalogueClose.scripts.OnClick();tick(4.1);check(#sent==count+1) -- Closing cancels the detail request.
+search:SetText("cancel before response");tick(4.7)
+named.ArcanaCatalogueClose.scripts.OnClick();result(4);check(not pane:IsShown())
 host.serviceTab="Affixes";host:ApplyServiceVisibility();check(not pane:IsShown() and not search:IsShown())
-result(3);check(not pane:IsShown())
+result(4);check(not pane:IsShown())
 host.serviceTab="Ascension";host:ApplyServiceVisibility();check(search:IsShown())
-named.ArcanaAscensionBrowse.scripts.OnClick();tick(2.8)
+named.ArcanaAscensionBrowse.scripts.OnClick();tick(5.3)
 host:Hide();check(not pane:IsShown());tick(10);check(not pane:IsShown())
 print("PASS: "..checks.." catalogue UI typing, spoof rejection, original results, ascended hover, six-version comparison, cache and visibility checks")

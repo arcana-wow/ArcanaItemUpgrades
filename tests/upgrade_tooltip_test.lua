@@ -26,6 +26,7 @@ function methods:GetOwner() return self.owner end
 function methods:GetName() return self.name end
 function methods:NumLines() return self.count or 0 end
 function methods:SetText(text) self.text = text end
+function methods:SetPoint(...) self.point={...} end
 function methods:GetText() return self.text end
 function methods:SetTextColor(...) self.color = {...} end
 function methods:GetTextColor() return unpack(self.color or {1,1,1}) end
@@ -269,4 +270,19 @@ tooltip:SetInventoryItem("player",6);reply(latest(),101,3)
 check(rank(3) and has("+2 Armor Penetration Rating"),"equipped ArP and upgrade coexist")
 tooltip:SetBagItem(0,1);reply(latest(),102,0)
 check(rank(0) and has("+2 Haste Rating") and not has("+2 Armor Penetration Rating"),"bag haste and zero rank coexist")
+local host=ArcanaItemUpgradesFrame
+host.serviceTab="Tempering";host:UpdateDisplay()
+local unavailable=false
+for _,f in ipairs(frames) do if f.text and f.text:find(" — Unavailable",1,true) then unavailable=true end end
+check(unavailable,"affix-only selection is Unavailable in Tempering, not Recalibration")
+check(host.TemperingButton.point[1]=="TOP" and host.TemperingButton.point[2]==host.ServiceEligibilityText and host.TemperingButton.point[4]==0,
+    "temper action is centered immediately beneath eligibility")
+local opened
+function host:OpenAscensionEquipment(slot) opened=slot end
+local row
+for _,f in ipairs(frames) do if f.scripts.OnDoubleClick and f.arcanaSlot==5 then row=f;break end end
+check(row~=nil,"equipped item is available for comparison")
+row.scripts.OnDoubleClick(row,"LeftButton");check(opened==nil,"tempering double-click never opens Ascension")
+host.serviceTab="Ascension";row.scripts.OnDoubleClick(row,"RightButton");check(opened==nil,"right-click does not compare")
+row.scripts.OnDoubleClick(row,"LeftButton");check(opened==5,"Ascension double-click compares the equipped slot")
 print("PASS: "..checks.." upgrade tooltip integration checks (Lua 5.1)")

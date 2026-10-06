@@ -5,7 +5,7 @@ local deadline, lastSync = nil, -1
 local tabs = {}
 local explanations = {
     Tempering = "Improve your equipped item's stats by 5% per rank, up to 5 ranks.",
-    Affixes = "Replace an item's bonus stat using a Recalibration Sigil.",
+    Affixes = "Reroll an item's bonus stat using a Recalibration Sigil.",
     Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
 }
 local function Send(text) SendAddonMessage("AAS",text,"WHISPER",UnitName("player")) end
@@ -13,28 +13,32 @@ local function Sync()
     if GetTime()-lastSync<0.2 then return end
     lastSync=GetTime();deadline=lastSync+5;pending={};Send("SYNC")
 end
-local function Current()
-    local row=snapshot[frame:GetSelectedEquipmentSlot()]
+local function Current(slot)
+    local row=snapshot[slot or frame:GetSelectedEquipmentSlot()]
     local link=row and GetInventoryItemLink("player",row.slot+1)
     local entry=link and tonumber(link:match("item:(%d+)"))
     return row and entry==row.entry and row or nil
 end
-local details=CreateFrame("Button","ArcanaAscensionTokenLink",frame)
-details:SetPoint("BOTTOM",0,80);details:SetSize(550,30)
-details:SetNormalFontObject("GameFontHighlightSmall")
-details:SetScript("OnEnter",function(self)
-    if self.token then GameTooltip:SetOwner(self,"ANCHOR_TOP");GameTooltip:SetHyperlink("item:"..self.token);GameTooltip:Show() end
-end)
-details:SetScript("OnLeave",function() GameTooltip:Hide() end)
-details:SetScript("OnClick",function(self)
+local details=CreateFrame("Frame","ArcanaAscensionInstruction",frame)
+details:SetPoint("TOP",frame.ServiceEligibilityText,"BOTTOM",0,-12);details:SetSize(550,18)
+local instruction=details:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+local tokenLink=CreateFrame("Button","ArcanaAscensionTokenLink",details)
+tokenLink:SetHeight(18)
+local tokenLabel=tokenLink:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+tokenLabel:SetPoint("CENTER")
+local period=details:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+period:SetText(".");period:SetPoint("LEFT",tokenLink,"RIGHT",0,0)
+tokenLink:SetScript("OnClick",function(self)
     if self.token then SetItemRef("item:"..self.token,self.link,"LeftButton") end
 end)
 local result=frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-result:SetPoint("BOTTOM",0,126);result:SetWidth(550)
 local ascend=CreateFrame("Button","ArcanaAscendButton",frame,"UIPanelButtonTemplate")
-ascend:SetSize(190,26);ascend:SetPoint("BOTTOM",0,23);ascend:SetText("Ascend Item")
+ascend:SetSize(190,26);ascend:SetText("Ascend Item")
 local preview=CreateFrame("Button","ArcanaAscensionPreviewButton",frame,"UIPanelButtonTemplate")
-preview:SetSize(190,22);preview:SetPoint("BOTTOM",0,54);preview:SetText("Preview ascended item")
+preview:SetSize(190,22);preview:SetPoint("TOP",details,"BOTTOM",0,-8);preview:SetText("Preview ascended item")
+ascend:SetPoint("TOP",preview,"BOTTOM",0,-6)
+result:SetPoint("TOP",ascend,"BOTTOM",0,-42);result:SetWidth(550)
+frame.AscensionButton=ascend
 preview:SetScript("OnEnter",function(self)
     local row=Current()
     if row and row.target>0 then GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetHyperlink("item:"..row.target);GameTooltip:Show() end
@@ -46,6 +50,7 @@ local function Available(row)
         not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and not inside and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
+    self:SetHeight(self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
     if self.serviceTab=="Tempering" then self.TemperingButton:Show() else self.TemperingButton:Hide() end
     for _,control in ipairs(self.AffixControls or {}) do
         if self.serviceTab=="Affixes" then control:Show() else control:Hide() end
@@ -54,18 +59,51 @@ function frame:ApplyServiceVisibility()
         if self.serviceTab=="Ascension" then control:Show() else control:Hide() end
     end
     local row=Current()
-    details.token=nil
+    tokenLink.token=nil
+    instruction:ClearAllPoints()
     if row and row.target>0 then
-        details.token=row.token
+        tokenLink.token=row.token
         local color=row.token==194704 and "ffff8000" or "ffa335ee"
-        details.link="|c"..color.."|Hitem:"..row.token.."|h["..P.Names[row.token].." Ascension Token]|h|r"
-        details:SetText("This item can be ascended using "..details.link..".")
+        tokenLink.link="|c"..color.."|Hitem:"..row.token.."|h["..P.Names[row.token].." Ascension Token]|h|r"
+        instruction:SetText("This item can be ascended using ")
+        tokenLabel:SetText(tokenLink.link)
+        local width=tokenLabel:GetStringWidth()
+        instruction:SetPoint("LEFT",details,"LEFT",(550-instruction:GetStringWidth()-width-period:GetStringWidth())/2,0)
+        tokenLink:ClearAllPoints();tokenLink:SetPoint("LEFT",instruction,"RIGHT",0,0);tokenLink:SetWidth(width)
+        tokenLink:Show();period:Show()
         preview:Enable()
     else
-        details:SetText(row and (row.ilvl>=284 and "This item is already at the Ascension cap." or "This item has no eligible Ascension upgrade.") or "Select an equipped item to see its next Ascension.")
+        instruction:SetPoint("CENTER")
+        instruction:SetText(row and (row.ilvl>=284 and "This item is already at the Ascension cap." or "This item has no eligible Ascension upgrade.") or "Select an equipped item to see its next Ascension.")
+        tokenLink:Hide();period:Hide()
         preview:Disable()
     end
     if Available(row) then ascend:Enable() else ascend:Disable() end
+end
+function frame:GetAscensionCatalogueEntry(slot)
+    local row=Current(slot)
+    -- The next template identifies the exact native suffix family. At the cap,
+    -- the equipped Ascension template itself resolves that same family.
+    return row and (row.target>0 and row.target or row.entry)
+end
+function frame:ServiceEligibility(selected,allowed,reason,maxRank)
+    if not selected then return "Select an equipped item.",false end
+    if not allowed then return reason,false end
+    if self.serviceTab=="Ascension" then
+        local row=Current()
+        if not row or pending then return "Waiting for item details...",false end
+        if row.ilvl>=284 then return "Maximum Ascension item level reached.",false end
+        if row.target==0 then return "Unavailable",false end
+        if UnitLevel("player")~=80 then return "Ascension requires level 80.",false end
+        return "Eligible for ascension to ilvl "..P.Levels[row.token],true
+    elseif self.serviceTab=="Affixes" then
+        local text,loading=self:GetAffixDescription(selected.slot)
+        if loading then return "Loading bonus stat...",false end
+        return text and "Eligible for recalibration" or "Unavailable",text~=nil
+    end
+    if selected.affixOnly or selected.rank==nil then return "Unavailable",false end
+    if selected.rank>=maxRank then return "Maximum tempering rank reached.",false end
+    return string.format("Eligible for tempering to rank %d/%d",selected.rank+1,maxRank),true
 end
 function frame:ServiceRowStatus(slot)
     if self.serviceTab=="Ascension" then
@@ -132,7 +170,7 @@ events:SetScript("OnEvent",function(self,event,prefix,message,channel,sender)
         end
     elseif event=="PLAYER_EQUIPMENT_CHANGED" or event=="BAG_UPDATE" then
         if frame:IsShown() and frame.serviceTab=="Ascension" then self.refreshAt=GetTime()+0.3 end
-    else frame:ApplyServiceVisibility() end
+    else frame:UpdateDisplay() end
 end)
 events:SetScript("OnUpdate",function(self)
     if self.refreshAt and GetTime()>=self.refreshAt then self.refreshAt=nil;Sync() end
