@@ -39,7 +39,7 @@ function P.Query(state, text, now, page)
     state.query=text;state.page=page or 0
     state.key=text.."\t"..state.page
     state.due=nil
-    if #text>80 or not Clean(text) then state.error="Enter an item name or item ID.";return end
+    if #text==0 or #text>80 or not Clean(text) then state.error="Enter an item name or item ID.";return end
     state.result=state.cache[state.key]
     if not state.result then state.due=now+0.5 end
 end

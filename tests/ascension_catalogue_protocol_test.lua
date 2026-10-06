@@ -21,14 +21,16 @@ check(P.Tick(state,1.3)=="SEARCH\t1\t0\tsta")
 P.Query(state,"",1.31)
 check(not finish(1,0,0) and not state.result) -- Late reply rejected before the next request.
 check(not P.Tick(state,1.84)) -- Global send spacing also bounds typing bursts.
-check(P.Tick(state,1.86)=="SEARCH\t2\t0\t")
+check(not P.Tick(state,1.86) and not state.due) -- Empty input never reaches the server.
+P.Query(state,"  \t ",1.9);check(not P.Tick(state,10)) -- Whitespace is also empty.
+P.Query(state,"873",1.9);check(P.Tick(state,2.45)=="SEARCH\t2\t0\t873")
 local targets={500001,500002,500003,500004,500005}
 check(finish(2,0,1,{row(2,873,"Staff of Jordan",40,targets)}))
 check(state.result.total==1 and state.result.rows[1].name=="Staff of Jordan")
 local staff=state.result.rows[1]
 check(P.Next(staff)==500001)
 check(P.Link(staff,873)=="item:873:0:0:0:0:0:0:0:80")
-P.Query(state,"",2.0);check(state.result and not P.Tick(state,3)) -- Cache.
+P.Query(state,"873",2.5);check(state.result and not P.Tick(state,3)) -- Cache.
 P.Query(state,"s",3);check(P.Tick(state,3.5)=="SEARCH\t3\t0\ts") -- One character allowed.
 finish(3,0,1,{row(3,873,"Staff of Jordan",40,targets)})
 P.Detail(state,staff,3.6);check(not P.Tick(state,3.76))

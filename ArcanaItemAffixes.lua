@@ -426,12 +426,12 @@ local function PublishSnapshot(context)
 end
 
 local bonusText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-bonusText:SetPoint("BOTTOM", 0, 64)
+bonusText:SetPoint("TOP", frame.ServiceEligibilityText, "BOTTOM", 0, -14)
 local button = CreateFrame("Button", "ArcanaItemRecalibrateButton", frame, "UIPanelButtonTemplate")
 button:SetWidth(180)
 button:SetHeight(26)
-button:SetPoint("BOTTOMRIGHT", -65, 23)
-button:SetText("Recalibrate")
+button:SetPoint("TOP", bonusText, "BOTTOM", 0, -12)
+button:SetText("Recalibrate Item")
 button:Disable()
 frame.AffixControls = {button, bonusText}
 function frame:GetAffixDescription(slot)
@@ -448,11 +448,11 @@ local function RefreshControls()
     local row = slot and state.slots[slot]
     local text = row and P.Describe(row.packed)
     local sigils = GetItemCount(194500) or 0
-    bonusText:SetText(text and ("Arcana Bonus: " .. text .. "     Recalibration Sigils: " .. sigils) or "")
+    bonusText:SetText("Recalibration sigils: " .. sigils)
     if ready and text and Allowed() and sigils > 0 and not paying then button:Enable() else button:Disable() end
 end
 StaticPopupDialogs["ARCANA_AFFIX_CONFIRM"] = {
-    text="Consume one Arcana Recalibration Sigil to replace %s on %s? The new stat will be different and its amount may be lower.",
+    text="Consume one Arcana Recalibration Sigil to reroll %s on %s? The new stat will be different and its amount may be lower.",
     button1=ACCEPT, button2=CANCEL, timeout=0, whileDead=false, hideOnEscape=true, preferredIndex=3,
     OnAccept=function(self, data)
         if not data or paying then return end

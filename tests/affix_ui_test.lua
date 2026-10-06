@@ -26,6 +26,7 @@ function methods:GetOwner() return self.owner end
 function methods:GetName() return self.name end
 function methods:NumLines() return self.count or 0 end
 function methods:SetText(text) self.text = text end
+function methods:SetPoint(...) self.point={...} end
 function methods:GetText() return self.text end
 function methods:SetTextColor(...) self.color = {...} end
 function methods:GetTextColor() return unpack(self.color or {1,1,1}) end
@@ -165,6 +166,9 @@ end
 sync()
 local button=named.ArcanaItemRecalibrateButton
 check(button.enabled,"eligible selected ring enables recalibration")
+check(button.text=="Recalibrate Item","action uses the requested label")
+check(button.point[1]=="TOP" and button.point[3]=="BOTTOM" and button.point[4]==0,"recalibration is centered beneath its counter")
+check(host.AffixControls[2].text=="Recalibration sigils: 1","detail shows only payment count, without repeating the Arcana bonus")
 check(host.slots[17].entry==40711,"relic reaches complete equipment selector")
 button.scripts.OnClick()
 check(popup and popup.data.guid==123,"confirmation captures exact GUID")

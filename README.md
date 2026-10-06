@@ -233,8 +233,8 @@ The Affixes list shows the actual bonus and Ascension shows only each equipped
 item's current ilvl. Its token instruction is a clickable item link, with no
 owned-count label. Missing payment still disables Ascend Item.
 
-In Ascension, type a name or item ID in Search, or press Browse for the full
-eligible catalogue. Empty and one-character input are supported. Results show
+In Ascension, type a name or item ID in Search. As of 1.9.1, at least one
+non-whitespace character is required; an empty field sends no request. Results show
 original items, including named native suffix variants. Hover previews the next
 eligible tier; click opens a scrollable original/all-tier comparison. Set
 descriptions come from the server's scaled set mapping. Previews omit personal
@@ -248,3 +248,23 @@ world entry; stale, partial and foreign replies never populate the view.
 
 Requires the matching catalogue-enabled server modules. The Ascension MPQ and
 ArcanaPartyDraft 0.19.1 are unchanged. All eight Lua test scripts run in CI.
+
+### 1.9.1: compact upgrade controls and catalogue navigation
+
+Each tab describes the selected item's eligibility. Temper Item and Recalibrate
+Item are centered directly beneath those details; Affixes shows only its sigil
+counter there, while the equipment rows retain their actual bonus values.
+Unavailable Tempering items are labeled consistently in the row and selection.
+
+Search is below Ascend Item. Its results contain original item names only, with
+an X to return to equipment from either the results or comparison. Double-click
+an equipped item in Ascension to open its original/all-tier comparison directly;
+the exact native suffix family is retained. Comparison cards copy native socket
+graphics, including meta sockets, beside the localized socket labels. Search
+retains its 500 ms debounce, shared rate limit, bounded caches and stale-response
+checks. Clearing/closing the search cancels pending requests and previews.
+
+Only clicking the required token's name opens its item tooltip. Hovering that
+name or the surrounding instruction does nothing. Payment confirmations and
+server validation remain authoritative. Actual rendering still needs in-game
+review at the owner's UI scale.
