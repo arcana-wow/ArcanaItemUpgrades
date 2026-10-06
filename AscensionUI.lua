@@ -8,6 +8,10 @@ local explanations = {
     Affixes = "Reroll an item's bonus stat using a Recalibration Sigil.",
     Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
 }
+local function TokenItemLink(token)
+    local color=token==194704 and "ffff8000" or "ffa335ee"
+    return "|c"..color.."|Hitem:"..token.."|h["..P.Names[token].." Ascension Token]|h|r"
+end
 local function Send(text) SendAddonMessage("AAS",text,"WHISPER",UnitName("player")) end
 local function Sync()
     if GetTime()-lastSync<0.2 then return end
@@ -116,8 +120,7 @@ function frame:ApplyServiceVisibility()
     instruction:ClearAllPoints()
     if row and row.target>0 then
         tokenLink.token=row.token
-        local color=row.token==194704 and "ffff8000" or "ffa335ee"
-        tokenLink.link="|c"..color.."|Hitem:"..row.token.."|h["..P.Names[row.token].." Ascension Token]|h|r"
+        tokenLink.link=TokenItemLink(row.token)
         instruction:SetText("This item can be ascended using ")
         tokenLabel:SetText(tokenLink.link)
         local width=tokenLabel:GetStringWidth()
@@ -188,7 +191,7 @@ for i,name in ipairs({"Tempering","Affixes","Ascension"}) do
     button:SetScript("OnClick",function() frame:SetServiceTab(name) end);tabs[name]=button
 end
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM={
-    text="Ascend %s to item level %s?\nConsumes one Ascension token. Existing upgrade progress is kept.\nLow-level affixes roll a level-80 value; existing level-80 bonuses are kept.",
+    text="Ascend %s?\nConsumes one %s.",
     button1=ACCEPT,button2=CANCEL,timeout=0,whileDead=false,hideOnEscape=true,preferredIndex=3,
     OnAccept=function(self,row)
         local current=Current()
@@ -198,7 +201,10 @@ StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM={
 }
 ascend:SetScript("OnClick",function()
     local row=Current()
-    if Available(row) then StaticPopup_Show("ARCANA_ASCENSION_CONFIRM",GetInventoryItemLink("player",row.slot+1),P.Levels[row.token],row) end
+    if Available(row) then
+        local item=GetInventoryItemLink("player",row.slot+1).." to item level "..P.Levels[row.token]
+        StaticPopup_Show("ARCANA_ASCENSION_CONFIRM",item,TokenItemLink(row.token),row)
+    end
 end)
 local events=CreateFrame("Frame")
 for _,event in ipairs({"CHAT_MSG_ADDON","PLAYER_EQUIPMENT_CHANGED","BAG_UPDATE","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED"}) do events:RegisterEvent(event) end

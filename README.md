@@ -291,3 +291,10 @@ eligibility and explicit rank-5/item-level-284 completion messages below.
 Tempering tooltips accept the realm's permanent equip-stat projection, including
 Attack Power effects on original trinkets. The server applies the same cached
 effect mask to eligibility, effective-value reporting and aura scaling.
+
+### 1.10.1 — concise confirmations
+
+Ascension confirmation shows the selected item, destination item level and exact
+Ascension token consumed. Recalibration confirmation shows the selected item and
+its current bonus stat and amount. This is an addon-only text update; the server
+protocol and payment validation are unchanged.
