@@ -50,13 +50,15 @@ jobs:
           lua5.1 tests/ascension_protocol_test.lua
           lua5.1 tests/ascension_ui_test.lua
           lua5.1 tests/ascension_set_tooltip_test.lua
+          lua5.1 tests/ascension_catalogue_protocol_test.lua
+          lua5.1 tests/ascension_catalogue_ui_test.lua
 
       - name: Build install-ready archive
         shell: bash
         run: |
           set -euo pipefail
           install -d package/ArcanaItemUpgrades
-          install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua AffixProtocol.lua ArcanaItemAffixes.lua UpgradeTooltips.lua AscensionProtocol.lua AscensionUI.lua AscensionSetTooltips.lua README.md LICENSE package/ArcanaItemUpgrades/
+          install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua AffixProtocol.lua ArcanaItemAffixes.lua UpgradeTooltips.lua AscensionProtocol.lua AscensionUI.lua AscensionSetTooltips.lua AscensionCatalogueProtocol.lua AscensionCatalogue.lua README.md LICENSE package/ArcanaItemUpgrades/
           cd package
           zip -X -r ../ArcanaItemUpgrades.zip ArcanaItemUpgrades
 

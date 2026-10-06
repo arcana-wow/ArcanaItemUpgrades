@@ -60,6 +60,15 @@ check(not button.enabled and sent[#sent][2]=="SYNC")
 receive("BEGIN","AnotherPlayer");receive("END","AnotherPlayer")
 check(not button.enabled)
 snapshot();check(button.enabled)
+check(host:ServiceRowStatus({slot=15})=="ilvl 44")
+check(host.ServiceSubtitle.text=="Ascend your equipment using the appropriate Ascension token. Requires level 80.")
+local token=named.ArcanaAscensionTokenLink
+check(token.text:find("This item can be ascended using ",1,true) and token.text:find("|Hitem:194700|h",1,true))
+check(not token.text:find("owned",1,true) and not token.text:find("→",1,true))
+function host:GetAffixDescription(slot) return slot==15 and "+18 Intellect" end
+host:SetServiceTab("Affixes")
+check(host:ServiceRowStatus({slot=15})=="+18 Intellect" and host:ServiceRowStatus({slot=0})=="No affix")
+now=1.3;host:SetServiceTab("Ascension");snapshot()
 button.scripts.OnClick();check(popup and popup.kind=="ARCANA_ASCENSION_CONFIRM")
 local selected=popup.data
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM.OnAccept({},selected)

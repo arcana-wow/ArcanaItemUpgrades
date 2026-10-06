@@ -299,6 +299,7 @@ upgradeButton:SetPoint("BOTTOMLEFT", 75, 23)
 upgradeButton:SetText("Temper Item")
 frame.TemperingButton = upgradeButton
 frame.ServiceSubtitle = subtitle
+frame.ServiceStatus = status
 
 sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
 sourceFrame:SetWidth(400)
@@ -529,6 +530,8 @@ function frame:UpdateDisplay()
             row.arcanaSlot = slot.slot
             row.icon:SetTexture(GetInventoryItemTexture("player", inventorySlot))
             row.name:SetText(slot.name)
+            row.name:SetWidth(self.serviceTab == "Affixes" and 295 or 370)
+            row.rank:SetWidth(self.serviceTab == "Affixes" and 200 or 135)
             row.rank:SetText(self.ServiceRowStatus and self:ServiceRowStatus(slot) or
                 (slot.affixOnly and "Affix" or string.format("%d/%d", slot.rank or 0, state.maxRank)))
             if state.selected == slot.slot then row:LockHighlight() else row:UnlockHighlight() end

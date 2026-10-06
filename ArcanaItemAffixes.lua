@@ -434,6 +434,11 @@ button:SetPoint("BOTTOMRIGHT", -65, 23)
 button:SetText("Recalibrate")
 button:Disable()
 frame.AffixControls = {button, bonusText}
+function frame:GetAffixDescription(slot)
+    if not equipmentFresh then return nil, true end
+    local row = state.slots[slot]
+    return P.Matches(row, GetInventoryItemLink("player", slot + 1)) and P.Describe(row.packed) or nil
+end
 local function RefreshControls()
     if frame.serviceTab and frame.serviceTab ~= "Affixes" then
         button:Hide(); bonusText:Hide(); return
