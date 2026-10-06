@@ -40,8 +40,10 @@ local probe=CreateFrame("GameTooltip","ArcanaCatalogueProbe",UIParent,"GameToolt
 local rows,cards={},{}
 local Render,Compare,Preview
 local function Close()
+    local hadPreview=hovered or pane:IsShown()
     selected=nil;hovered=nil;openEntry=nil;retryAt=nil
-    GameTooltip:Hide();pane:Hide();search:ClearFocus();P.Cancel(state)
+    if hadPreview then GameTooltip:Hide() end
+    pane:Hide();search:ClearFocus();P.Cancel(state)
 end
 close:SetScript("OnClick",Close)
 local function Details(row) return P.Detail(state,row,GetTime()) end

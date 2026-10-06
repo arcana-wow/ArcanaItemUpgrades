@@ -263,6 +263,7 @@ the exact native suffix family is retained. Comparison cards copy native socket
 graphics, including meta sockets, beside the localized socket labels. Search
 retains its 500 ms debounce, shared rate limit, bounded caches and stale-response
 checks. Clearing/closing the search cancels pending requests and previews.
+Background refreshes leave unrelated equipment tooltips open.
 
 Only clicking the required token's name opens its item tooltip. Hovering that
 name or the surrounding instruction does nothing. Payment confirmations and
