@@ -226,3 +226,25 @@ responses are discarded. Server confirmation always validates the exact item.
 Run all `tests/*_test.lua` with Lua 5.1. The Ascension tests cover all tiers,
 three-tab behavior, confirmation, eligibility, stale selection/replies,
 timeouts, mixed-set descriptions and inspection ownership.
+
+## Catalogue and clarity update (1.9.0)
+
+The Affixes list shows the actual bonus and Ascension shows only each equipped
+item's current ilvl. Its token instruction is a clickable item link, with no
+owned-count label. Missing payment still disables Ascend Item.
+
+In Ascension, type a name or item ID in Search, or press Browse for the full
+eligible catalogue. Empty and one-character input are supported. Results show
+original items, including named native suffix variants. Hover previews the next
+eligible tier; click opens a scrollable original/all-tier comparison. Set
+descriptions come from the server's scaled set mapping. Previews omit personal
+Tempering and Arcana affixes. Use Results to return to the list and My equipment
+to return to the upgrade controls.
+
+Search waits 500 ms after typing stops. Pages contain 20 results. Search and
+detail requests share a 550 ms client spacing and an independent server limit
+of two requests per second. Both caches are limited to 64 entries and reset on
+world entry; stale, partial and foreign replies never populate the view.
+
+Requires the matching catalogue-enabled server modules. The Ascension MPQ and
+ArcanaPartyDraft 0.19.1 are unchanged. All eight Lua test scripts run in CI.

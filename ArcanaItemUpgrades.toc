@@ -2,7 +2,7 @@
 ## Title: Arcana Item Upgrades
 ## Notes: View and upgrade equipped items on Arcana.
 ## Author: Arcana
-## Version: 1.8.0
+## Version: 1.9.0
 ## SavedVariables: ArcanaItemUpgradesDB
 
 ArcanaItemUpgrades.lua
@@ -12,3 +12,5 @@ UpgradeTooltips.lua
 AscensionProtocol.lua
 AscensionUI.lua
 AscensionSetTooltips.lua
+AscensionCatalogueProtocol.lua
+AscensionCatalogue.lua

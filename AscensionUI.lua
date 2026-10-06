@@ -6,7 +6,7 @@ local tabs = {}
 local explanations = {
     Tempering = "Improve your equipped item's stats by 5% per rank, up to 5 ranks.",
     Affixes = "Replace an item's bonus stat using a Recalibration Sigil.",
-    Ascension = "Raise item level to 200, 226, 245, 264, then 284. Requires level 80.",
+    Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
 }
 local function Send(text) SendAddonMessage("AAS",text,"WHISPER",UnitName("player")) end
 local function Sync()
@@ -19,8 +19,16 @@ local function Current()
     local entry=link and tonumber(link:match("item:(%d+)"))
     return row and entry==row.entry and row or nil
 end
-local details=frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-details:SetPoint("BOTTOM",0,86);details:SetWidth(550);details:SetJustifyH("CENTER")
+local details=CreateFrame("Button","ArcanaAscensionTokenLink",frame)
+details:SetPoint("BOTTOM",0,80);details:SetSize(550,30)
+details:SetNormalFontObject("GameFontHighlightSmall")
+details:SetScript("OnEnter",function(self)
+    if self.token then GameTooltip:SetOwner(self,"ANCHOR_TOP");GameTooltip:SetHyperlink("item:"..self.token);GameTooltip:Show() end
+end)
+details:SetScript("OnLeave",function() GameTooltip:Hide() end)
+details:SetScript("OnClick",function(self)
+    if self.token then SetItemRef("item:"..self.token,self.link,"LeftButton") end
+end)
 local result=frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
 result:SetPoint("BOTTOM",0,126);result:SetWidth(550)
 local ascend=CreateFrame("Button","ArcanaAscendButton",frame,"UIPanelButtonTemplate")
@@ -46,9 +54,12 @@ function frame:ApplyServiceVisibility()
         if self.serviceTab=="Ascension" then control:Show() else control:Hide() end
     end
     local row=Current()
+    details.token=nil
     if row and row.target>0 then
-        details:SetText(string.format("Item level %d → %d   •   1 %s Ascension token (%d owned)\nKeeps Tempering, Affixes, enchants and compatible gems.",
-            row.ilvl,P.Levels[row.token],P.Names[row.token],row.count))
+        details.token=row.token
+        local color=row.token==194704 and "ffff8000" or "ffa335ee"
+        details.link="|c"..color.."|Hitem:"..row.token.."|h["..P.Names[row.token].." Ascension Token]|h|r"
+        details:SetText("This item can be ascended using "..details.link..".")
         preview:Enable()
     else
         details:SetText(row and (row.ilvl>=284 and "This item is already at the Ascension cap." or "This item has no eligible Ascension upgrade.") or "Select an equipped item to see its next Ascension.")
@@ -59,8 +70,14 @@ end
 function frame:ServiceRowStatus(slot)
     if self.serviceTab=="Ascension" then
         local row=snapshot[slot.slot]
-        return row and ("ilvl "..row.ilvl..(row.target>0 and (" → "..P.Levels[row.token]) or "")) or "Waiting..."
-    elseif self.serviceTab=="Affixes" then return "Bonus stat" end
+        return row and ("ilvl "..row.ilvl) or "Waiting..."
+    elseif self.serviceTab=="Affixes" then
+        if self.GetAffixDescription then
+            local text,loading=self:GetAffixDescription(slot.slot)
+            return text or (loading and "Loading..." or "No affix")
+        end
+        return "No affix"
+    end
     return slot.affixOnly and "Unavailable" or string.format("%d/5",slot.rank or 0)
 end
 function frame:SetServiceTab(tab)
@@ -80,7 +97,7 @@ for i,name in ipairs({"Tempering","Affixes","Ascension"}) do
     button:SetScript("OnClick",function() frame:SetServiceTab(name) end);tabs[name]=button
 end
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM={
-    text="Ascend %s to item level %s?\nConsumes one Ascension token. Existing upgrade progress is kept.",
+    text="Ascend %s to item level %s?\nConsumes one Ascension token. Existing upgrade progress is kept.\nLow-level affixes roll a level-80 value; existing level-80 bonuses are kept.",
     button1=ACCEPT,button2=CANCEL,timeout=0,whileDead=false,hideOnEscape=true,preferredIndex=3,
     OnAccept=function(self,row)
         local current=Current()

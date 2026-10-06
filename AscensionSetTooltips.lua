@@ -15,7 +15,8 @@ local function Description(spell)
     probe:Hide()
     return #text>0 and table.concat(text," ") or (GetSpellInfo(spell) or "Set bonus")
 end
-local function Render(rows)
+local function Render(rows, target)
+    local tooltip = target or tooltip
     if #rows==0 then return end
     local native={}
     for i=1,tooltip:NumLines() do
@@ -37,6 +38,21 @@ local function Render(rows)
     end
     for i=#rows+1,#native do native[i]:SetText("") end
     tooltip:Show()
+end
+-- Catalogue previews describe a complete set at the selected tier. They must
+-- not inherit the current player's equipped set count or active bonus color.
+function ArcanaAscensionSetPreview(target, rows)
+    if not rows then
+        for index=1,target:NumLines() do
+            local line=_G[target:GetName().."TextLeft"..index]
+            local text=line and line:GetText()
+            if text and (text:match("^%(%d+%) Set:") or text:match("^Set:")) then
+                line:SetText("Set bonus: loading preview...");line:SetTextColor(0.5,0.5,0.5)
+            end
+        end
+        return
+    end
+    Render(rows, target)
 end
 local function Current(v)
     return v and tooltip:IsShown() and tooltip:GetOwner()==v.owner and
