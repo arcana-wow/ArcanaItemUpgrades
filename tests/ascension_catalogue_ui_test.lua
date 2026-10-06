@@ -132,6 +132,7 @@ named.ArcanaCatalogueClose.scripts.OnClick();tick(4.1);check(#sent==count+1) -- 
 search:SetText("cancel before response");tick(4.7)
 named.ArcanaCatalogueClose.scripts.OnClick();result(4);check(not pane:IsShown())
 host.serviceTab="Affixes";host:ApplyServiceVisibility();check(not pane:IsShown() and not search:IsShown())
+GameTooltip:Show();host:ApplyServiceVisibility();check(GameTooltip:IsShown()) -- Hidden catalogue must not close an unrelated equipment tooltip during affix sync.
 result(4);check(not pane:IsShown())
 host.serviceTab="Ascension";host:ApplyServiceVisibility();check(search:IsShown())
 named.ArcanaAscensionBrowse.scripts.OnClick();tick(5.3)
