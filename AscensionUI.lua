@@ -39,11 +39,63 @@ preview:SetSize(190,22);preview:SetPoint("TOP",details,"BOTTOM",0,-8);preview:Se
 ascend:SetPoint("TOP",preview,"BOTTOM",0,-6)
 result:SetPoint("TOP",ascend,"BOTTOM",0,-42);result:SetWidth(550)
 frame.AscensionButton=ascend
-preview:SetScript("OnEnter",function(self)
+local compare=CreateFrame("CheckButton","ArcanaAscensionCompareItems",frame,"UICheckButtonTemplate")
+compare:SetSize(24,24);compare:SetPoint("LEFT",preview,"RIGHT",6,0);compare:SetChecked(false)
+local compareLabel=compare:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+compareLabel:SetPoint("LEFT",compare,"RIGHT",0,0);compareLabel:SetText("Compare items")
+local nextTooltip=CreateFrame("GameTooltip","ArcanaAscensionNextTooltip",UIParent,"GameTooltipTemplate")
+nextTooltip:SetClampedToScreen(true)
+local previewing=false
+local previewGuid,previewTarget
+local function HidePreview()
+    if previewing then GameTooltip:Hide() end
+    previewing=false;nextTooltip:Hide()
+end
+local function PositionPair()
+    local width=GameTooltip:GetWidth()+nextTooltip:GetWidth()+12
+    local left=math.max(8,math.min(preview:GetCenter()-width/2,UIParent:GetWidth()-width-8))
+    local bottom=math.max(8,math.min(preview:GetTop()+8,
+        UIParent:GetHeight()-math.max(GameTooltip:GetHeight(),nextTooltip:GetHeight())-8))
+    GameTooltip:ClearAllPoints();nextTooltip:ClearAllPoints()
+    GameTooltip:SetPoint("BOTTOMLEFT",UIParent,"BOTTOMLEFT",left,bottom)
+    nextTooltip:SetPoint("TOPLEFT",GameTooltip,"TOPRIGHT",12,0)
+end
+local function ShowPreview()
     local row=Current()
-    if row and row.target>0 then GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetHyperlink("item:"..row.target);GameTooltip:Show() end
+    if not row or row.target==0 then HidePreview();return end
+    previewing=true
+    previewGuid=row.guid;previewTarget=row.target
+    if compare:GetChecked() then
+        -- Use the native equipment tooltip so the current copy includes its
+        -- enchants, gems, affix and server-authoritative Tempering overlay.
+        GameTooltip:SetOwner(preview,"ANCHOR_NONE")
+        GameTooltip:SetInventoryItem("player",row.slot+1)
+        nextTooltip:SetOwner(preview,"ANCHOR_NONE")
+        nextTooltip:SetHyperlink("item:"..row.target)
+        -- Centre the pair above the button and clamp the pair as a unit.
+        PositionPair()
+        GameTooltip:Show();nextTooltip:Show()
+    else
+        nextTooltip:Hide()
+        GameTooltip:SetOwner(preview,"ANCHOR_RIGHT")
+        GameTooltip:SetHyperlink("item:"..row.target);GameTooltip:Show()
+    end
+end
+preview:SetScript("OnEnter",function(self)
+    ShowPreview()
 end)
-preview:SetScript("OnLeave",function() GameTooltip:Hide() end)
+preview:SetScript("OnLeave",HidePreview)
+preview:SetScript("OnHide",HidePreview)
+compare:SetScript("OnClick",HidePreview)
+local positionAt=0
+preview:SetScript("OnUpdate",function()
+    if previewing and compare:GetChecked() and GetTime()>=positionAt then
+        positionAt=GetTime()+0.1
+        -- Owned-item tooltip replies can change its dimensions after hover.
+        -- Reposition without rebuilding or issuing another backend request.
+        PositionPair()
+    end
+end)
 local function Available(row)
     local inside=IsInInstance()
     return row and row.target>0 and row.count>0 and UnitLevel("player")==80 and
@@ -55,10 +107,11 @@ function frame:ApplyServiceVisibility()
     for _,control in ipairs(self.AffixControls or {}) do
         if self.serviceTab=="Affixes" then control:Show() else control:Hide() end
     end
-    for _,control in ipairs({details,result,ascend,preview}) do
+    for _,control in ipairs({details,result,ascend,preview,compare}) do
         if self.serviceTab=="Ascension" then control:Show() else control:Hide() end
     end
     local row=Current()
+    if previewing and (self.serviceTab~="Ascension" or not row or row.guid~=previewGuid or row.target~=previewTarget) then HidePreview() end
     tokenLink.token=nil
     instruction:ClearAllPoints()
     if row and row.target>0 then
@@ -92,17 +145,17 @@ function frame:ServiceEligibility(selected,allowed,reason,maxRank)
     if self.serviceTab=="Ascension" then
         local row=Current()
         if not row or pending then return "Waiting for item details...",false end
-        if row.ilvl>=284 then return "Maximum Ascension item level reached.",false end
-        if row.target==0 then return "Unavailable",false end
+        if row.ilvl>=284 then return "Maximum Ascension level reached (ilvl 284).",false end
+        if row.target==0 then return "Unavailable for ascension.",false end
         if UnitLevel("player")~=80 then return "Ascension requires level 80.",false end
         return "Eligible for ascension to ilvl "..P.Levels[row.token],true
     elseif self.serviceTab=="Affixes" then
         local text,loading=self:GetAffixDescription(selected.slot)
         if loading then return "Loading bonus stat...",false end
-        return text and "Eligible for recalibration" or "Unavailable",text~=nil
+        return text and "Eligible for recalibration" or "Unavailable for recalibration.",text~=nil
     end
-    if selected.affixOnly or selected.rank==nil then return "Unavailable",false end
-    if selected.rank>=maxRank then return "Maximum tempering rank reached.",false end
+    if selected.affixOnly or selected.rank==nil then return "Unavailable for tempering.",false end
+    if selected.rank>=maxRank then return string.format("Maximum tempering rank reached (%d/%d).",maxRank,maxRank),false end
     return string.format("Eligible for tempering to rank %d/%d",selected.rank+1,maxRank),true
 end
 function frame:ServiceRowStatus(slot)
@@ -169,6 +222,7 @@ events:SetScript("OnEvent",function(self,event,prefix,message,channel,sender)
             frame:RefreshTempering();frame:RefreshAffixes()
         end
     elseif event=="PLAYER_EQUIPMENT_CHANGED" or event=="BAG_UPDATE" then
+        if event=="PLAYER_EQUIPMENT_CHANGED" then HidePreview() end
         if frame:IsShown() and frame.serviceTab=="Ascension" then self.refreshAt=GetTime()+0.3 end
     else frame:UpdateDisplay() end
 end)

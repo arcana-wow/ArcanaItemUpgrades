@@ -1,5 +1,9 @@
 local frames,named,sent={}, {}, {}
 local now=0
+local mouseDown,mouseOver,chatInsert=false,true,0
+function IsMouseButtonDown() return mouseDown end
+function MouseIsOver() return mouseOver end
+function ChatEdit_InsertLink() chatInsert=chatInsert+1;return "chat" end
 local methods={}
 function methods:SetScript(e,f) self.scripts[e]=f end
 function methods:HookScript(e,f) local old=self.scripts[e];self.scripts[e]=function(...) if old then old(...) end;f(...) end end
@@ -28,6 +32,10 @@ function methods:GetName() return self.name end
 function methods:GetFrameLevel() return 5 end
 function methods:CreateFontString() return CreateFrame("Font",nil,self) end
 function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
+function methods:SetBackdrop(backdrop) self.backdrop=backdrop end
+function methods:SetFocus() self.focus=true end
+function methods:HasFocus() return self.focus end
+function methods:ClearFocus() self.focus=false end
 function methods:SetOwner(owner) self.owner=owner end
 function methods:NumLines() return self.count or 0 end
 function methods:AddLine(text)
@@ -83,6 +91,7 @@ local function result(id)
     receive("CATEND\t"..id)
 end
 check(search:IsShown() and not pane:IsShown())
+check(pane.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8" and not named.ArcanaCatalogueBack:IsShown())
 check(search.point[2]==host.AscensionButton and search.point[3]=="BOTTOM")
 check(not named.ArcanaAscensionBrowse.enabled)
 named.ArcanaAscensionBrowse.scripts.OnClick();tick(0.6);check(#sent==0 and not pane:IsShown())
@@ -96,7 +105,7 @@ for _,candidate in ipairs(frames) do if candidate.parent==pane and candidate.scr
 check(row and not row:IsShown())
 result(1);check(row:IsShown() and row.row.source==873 and row.name.text=="Staff of Jordan" and not row.level)
 row.scripts.OnEnter(row)
-check(GameTooltip.link=="item:500001:0:0:0:0:0:0:0:80") -- Hover previews the next tier, not the original.
+check(GameTooltip.link=="item:873:0:0:0:0:0:0:0:80") -- Hover previews the original item.
 row.scripts.OnClick(row)
 check(named.ArcanaCatalogueComparisonScroll:IsShown() and not row:IsShown())
 local headings={}
@@ -122,12 +131,14 @@ named.ArcanaCatalogueClose.scripts.OnClick();check(not pane:IsShown())
 named.ArcanaAscensionBrowse.scripts.OnClick();check(row:IsShown()) -- Cached query.
 row.scripts.OnClick(row);named.ArcanaCatalogueClose.scripts.OnClick();check(not pane:IsShown())
 local count=#sent
-search:SetText("");tick(2.2);check(#sent==count and not pane:IsShown())
+search:SetFocus();search:SetText("");tick(2.2);check(#sent==count and not pane:IsShown() and search:HasFocus())
+mouseDown=true;mouseOver=false;tick(2.3);check(not search:HasFocus());mouseDown=false
 search:SetText("   ");tick(3);check(#sent==count and not pane:IsShown() and not named.ArcanaAscensionBrowse.enabled)
-host:OpenAscensionEquipment(15);tick(3.49);check(#sent==count)
+host:OpenAscensionEquipment(15);check(search:GetText()=="   " and not row:IsShown());tick(3.49);check(#sent==count)
 tick(3.51);check(sent[#sent][2]=="SEARCH\t3\t0\t500004")
 result(3);check(named.ArcanaCatalogueComparisonScroll:IsShown() and not row:IsShown())
-check(named.ArcanaCatalogueClose:IsShown())
+check(named.ArcanaCatalogueClose:IsShown() and not named.ArcanaCatalogueBack:IsShown())
+check(search:GetText()=="   ")
 named.ArcanaCatalogueClose.scripts.OnClick();tick(4.1);check(#sent==count+1) -- Closing cancels the detail request.
 search:SetText("cancel before response");tick(4.7)
 named.ArcanaCatalogueClose.scripts.OnClick();result(4);check(not pane:IsShown())
@@ -137,4 +148,13 @@ result(4);check(not pane:IsShown())
 host.serviceTab="Ascension";host:ApplyServiceVisibility();check(search:IsShown())
 named.ArcanaAscensionBrowse.scripts.OnClick();tick(5.3)
 host:Hide();check(not pane:IsShown());tick(10);check(not pane:IsShown())
-print("PASS: "..checks.." catalogue UI typing, spoof rejection, original results, ascended hover, six-version comparison, cache and visibility checks")
+host:Show();host.serviceTab="Ascension";host:ApplyServiceVisibility()
+search:SetFocus()
+local itemLink="|cff0070dd|Hitem:873:0:0:0:0:0:0:0:80|h[Staff of Jordan]|h|r"
+check(ChatEdit_InsertLink(itemLink)==true and chatInsert==0 and search:GetText()=="Staff of Jordan" and search:HasFocus())
+tick(11);check(sent[#sent][2]:match("\t873$"))
+search:SetText("Staff of Jorda");tick(12);check(sent[#sent][2]:match("\tstaff of jorda$"))
+search:ClearFocus();check(ChatEdit_InsertLink(itemLink)=="chat" and chatInsert==1)
+search:SetFocus();check(ChatEdit_InsertLink("|Hspell:1|h[Spell]|h")=="chat" and chatInsert==2)
+search:SetText("");check(search:HasFocus());search.scripts.OnEscapePressed();check(not search:HasFocus())
+print("PASS: "..checks.." catalogue UI typing, spoof rejection, original results, original hover, opaque layers, direct equipment comparison, shift-click and focus, six-version comparison, cache and visibility checks")

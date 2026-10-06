@@ -269,3 +269,23 @@ Only clicking the required token's name opens its item tooltip. Hovering that
 name or the surrounding instruction does nothing. Payment confirmations and
 server validation remain authoritative. Actual rendering still needs in-game
 review at the owner's UI scale.
+
+### 1.10.0 — comparisons and permanent equip stats
+
+Search results and comparison cards use solid backgrounds. Results preview the
+original item on hover; click to view all versions. Double-clicking equipped
+items opens comparison directly without changing the search field. Clearing
+the field cancels the search while preserving focus; clicking outside or Escape
+releases it. Shift-clicking an item while focused inserts its name and performs
+an exact item-ID lookup through the existing 500 ms debounce and bounded cache.
+
+The unchecked-by-default **Compare items** box beside the preview button enables
+current equipment on the left and the next Ascension template on the right. The
+current tooltip includes personal enchants, gems, Affixes and Tempering; the next
+version is a base template preview. Closing, switching tabs or leaving the button
+hides both. Selected headings contain only the item name, with feature-specific
+eligibility and explicit rank-5/item-level-284 completion messages below.
+
+Tempering tooltips accept the realm's permanent equip-stat projection, including
+Attack Power effects on original trinkets. The server applies the same cached
+effect mask to eligibility, effective-value reporting and aura scaling.

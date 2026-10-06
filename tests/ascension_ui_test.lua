@@ -16,6 +16,14 @@ function methods:GetStringWidth() return #(self.text or "")*5 end
 function methods:SetPoint(...) self.point={...} end
 function methods:SetWidth(width) self.width=width end
 function methods:SetHeight(height) self.height=height end
+function methods:SetChecked(value) self.checked=value end
+function methods:GetChecked() return self.checked end
+function methods:GetWidth() return self.name=="UIParent" and 1200 or 250 end
+function methods:GetHeight() return self.name=="UIParent" and 900 or 400 end
+function methods:GetCenter() return 600,500 end
+function methods:GetTop() return 400 end
+function methods:SetHyperlink(link) self.link=link;self.inventory=nil end
+function methods:SetInventoryItem(unit,slot) self.inventory={unit,slot};self.link=nil end
 function methods:CreateFontString() return CreateFrame("Font") end
 function CreateFrame(kind,name)
     local f=setmetatable({scripts={},name=name},{__index=function(_,key)
@@ -23,6 +31,7 @@ function CreateFrame(kind,name)
     end})
     frames[#frames+1]=f;if name then named[name]=f end;return f
 end
+UIParent=CreateFrame("Frame","UIParent")
 ArcanaItemUpgradesFrame=CreateFrame("Frame")
 local host=ArcanaItemUpgradesFrame
 host.TemperingButton=CreateFrame("Button");host.ServiceSubtitle=CreateFrame("Font")
@@ -68,6 +77,23 @@ check(not button.enabled and sent[#sent][2]=="SYNC")
 receive("BEGIN","AnotherPlayer");receive("END","AnotherPlayer")
 check(not button.enabled)
 snapshot();check(button.enabled)
+local preview=named.ArcanaAscensionPreviewButton
+local compare=named.ArcanaAscensionCompareItems
+local nextTip=named.ArcanaAscensionNextTooltip
+check(not compare:GetChecked())
+preview.scripts.OnEnter(preview)
+check(GameTooltip.link=="item:500000" and not nextTip:IsShown())
+preview.scripts.OnLeave();check(not GameTooltip:IsShown() and not nextTip:IsShown())
+compare:SetChecked(true);preview.scripts.OnEnter(preview)
+check(GameTooltip.inventory[2]==16 and nextTip.link=="item:500000" and nextTip:IsShown())
+check(GameTooltip.point[1]=="BOTTOMLEFT" and nextTip.point[2]==GameTooltip and nextTip.point[3]=="TOPRIGHT")
+host:UpdateDisplay();check(GameTooltip:IsShown() and nextTip:IsShown())
+local beforePreviewRequests=#sent
+preview.scripts.OnUpdate();check(#sent==beforePreviewRequests)
+
+preview.scripts.OnLeave();check(not GameTooltip:IsShown() and not nextTip:IsShown())
+compare:SetChecked(false)
+
 check(host:ServiceRowStatus({slot=15})=="ilvl 44")
 check(host.ServiceSubtitle.text=="Ascend your equipment using the appropriate Ascension token. Requires level 80.")
 local token=named.ArcanaAscensionTokenLink
@@ -81,12 +107,12 @@ function host:GetAffixDescription(slot) return slot==15 and "+18 Intellect" end
 host:SetServiceTab("Affixes")
 check(host:ServiceRowStatus({slot=15})=="+18 Intellect" and host:ServiceRowStatus({slot=0})=="No affix")
 check(host:ServiceEligibility({slot=15},true,nil,5)=="Eligible for recalibration")
-check(host:ServiceEligibility({slot=0},true,nil,5)=="Unavailable")
+check(host:ServiceEligibility({slot=0},true,nil,5)=="Unavailable for recalibration.")
 check(host.ServiceSubtitle.text=="Reroll an item's bonus stat using a Recalibration Sigil.")
 host:SetServiceTab("Tempering")
 check(host:ServiceEligibility({slot=15,rank=1},true,nil,5)=="Eligible for tempering to rank 2/5")
-check(host:ServiceEligibility({slot=15,affixOnly=true},true,nil,5)=="Unavailable")
-check(host:ServiceEligibility({slot=15,rank=5},true,nil,5)=="Maximum tempering rank reached.")
+check(host:ServiceEligibility({slot=15,affixOnly=true},true,nil,5)=="Unavailable for tempering.")
+check(host:ServiceEligibility({slot=15,rank=5},true,nil,5)=="Maximum tempering rank reached (5/5).")
 check(host:ServiceEligibility({slot=15,rank=1},false,"You must be alive.",5)=="You must be alive.")
 now=1.3;host:SetServiceTab("Ascension");snapshot()
 button.scripts.OnClick();check(popup and popup.kind=="ARCANA_ASCENSION_CONFIRM")
@@ -109,6 +135,7 @@ end
 snapshot("ITEM\t15\t123\t9425\t44\t500000\t194700\t0");check(not button.enabled)
 snapshot("ITEM\t15\t123\t9425\t284\t0\t0\t0");check(not button.enabled and not token:IsShown())
 check(host:GetAscensionCatalogueEntry(15)==9425)
+check(host:ServiceEligibility({slot=15},true,nil,5)=="Maximum Ascension level reached (ilvl 284).")
 now=2;host:SetServiceTab("Ascension")
 receive("BEGIN");receive("ITEM\t15\t123\t9425\t44\t500000\t194700\tnan");receive("END")
 check(not button.enabled)
