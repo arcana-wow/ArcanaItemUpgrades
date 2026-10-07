@@ -365,3 +365,17 @@ changed or rolled by these display fixes.
 
 The accompanying Test data migration shortens item 194800's description to
 "Contains your recycling proceeds." The existing satchel icon MPQ is retained.
+
+
+### Recycling picker (1.13.0)
+
+The item picker shows only names and ilvls, stays open while filling the next
+empty slot (wrapping after slot 10), and closes when ten items are selected.
+Drag its title bar to move it within the screen. Clear all appears alongside
+the average ilvl when anything is selected. Autofill highest ilvl replaces the
+selection with the ten highest eligible carried instances, with bag/slot order
+for ties; with fewer than ten it selects what is available and stays open.
+Autofill has no tooltip. Both actions invalidate old quotes and cannot change a
+batch awaiting its durable commit receipt. Recycling still requires explicit
+confirmation. The compact nine-row picker preserves and clamps scrolling as
+selected items leave the list.

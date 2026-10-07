@@ -11,6 +11,11 @@ function methods:Hide() self.shown=false;if self.scripts.OnHide then self.script
 function methods:IsShown() return self.shown~=false end
 function methods:Enable() self.enabled=true end
 function methods:Disable() self.enabled=false end
+function methods:GetName() return self.name end
+function methods:SetMovable(value) self.movable=value end
+function methods:SetClampedToScreen(value) self.clamped=value end
+function methods:StartMoving() self.moving=true end
+function methods:StopMovingOrSizing() self.moving=false end
 function methods:SetText(text) self.text=text end
 function methods:SetPoint(...) self.point={...} end
 function methods:SetWidth(width) self.width=width end
@@ -86,7 +91,11 @@ local function choose(index,guid)
     click(index);check(named.ArcanaRecyclingPicker:IsShown())
     local found
     for _,row in ipairs(pickerRows()) do if row.row.guid==guid then row.scripts.OnClick(row);found=true;break end end
-    check(found and not named.ArcanaRecyclingPicker:IsShown())
+    check(found)
+    local empty=false
+    for i=1,10 do if named["ArcanaRecycleSlot"..i].label.text=="Click to choose" then empty=true end end
+    check(named.ArcanaRecyclingPicker:IsShown()==empty)
+    named.ArcanaRecyclingPicker:Hide()
 end
 local id="0123456789abcdef0123456789abcdef"
 local function quote(requestId)
@@ -214,4 +223,59 @@ accept.scripts.OnClick();local committed=request();receive("RESULT\t"..committed
 local completedCount=#sent;receive("RESULT\t"..committed[2].."\t"..id.."\t1000\t0")
 accept.scripts.OnClick();check(#sent==completedCount and not ArcanaItemUpgradesDB.recyclingPending)
 check(not host.ServiceStatus:IsShown() and host.ServiceStatus.text=="")
+-- Continuous picker fills from the requested slot, wraps and closes only at ten.
+local picker=named.ArcanaRecyclingPicker
+local clear=named.ArcanaRecycleClearAll
+local autofill=named.ArcanaRecycleAutofill
+local scroll=named.ArcanaRecyclingPickerScroll
+local function loadRows(levels)
+    clear.scripts.OnClick();host:RefreshRecycling();tick(2)
+    local current=request();check(current[1]=="SYNC")
+    receive("BEGIN\t"..current[2].."\t2\t1\t")
+    for i,ilvl in ipairs(levels) do
+        receive(table.concat({"ITEM",current[2],i,math.floor((i-1)/16),(i-1)%16+1,123,ilvl,101,0},"\t"))
+    end
+    receive("END\t"..current[2])
+end
+local levels={};for i=1,20 do levels[i]=187 end
+loadRows(levels);check(not clear:IsShown());click(7)
+check(picker.movable and picker.clamped and autofill.text=="Autofill highest ilvl")
+check(not autofill.scripts.OnEnter) -- No tooltip.
+named.ArcanaRecyclingPickerDrag.scripts.OnDragStart();check(picker.moving)
+named.ArcanaRecyclingPickerDrag.scripts.OnDragStop();check(not picker.moving)
+for i=1,10 do
+    local row=pickerRows()[1];check(row.row.guid==i and row.value.text=="ilvl 187")
+    row.scripts.OnClick(row);check(clear:IsShown());check(picker:IsShown()==(i<10))
+end
+tick();check(request()[3]=="5,6,7,8,9,10,1,2,3,4")
+local stale=request()[2];clear.scripts.OnClick();check(not clear:IsShown() and not button.enabled)
+quote(stale);check(not button.enabled);local noQuote=#sent;tick(1);check(#sent==noQuote)
+-- Shrinking the scrollable list preserves the offset and clamps at its end.
+loadRows(levels);click(1);scroll.scripts.OnVerticalScroll(scroll,11*27)
+check(scroll.offset==11 and pickerRows()[1].row.guid==12)
+local row=pickerRows()[1];row.scripts.OnClick(row)
+check(scroll.offset==10 and picker:IsShown() and pickerRows()[1].row.guid==11)
+-- Autofill replaces manual choices, sorts descending, and keeps identical copies distinct.
+for i=1,20 do levels[i]=187+i end
+loadRows(levels);choose(1,1);click(2);autofill.scripts.OnClick()
+check(not picker:IsShown() and clear:IsShown());tick()
+check(request()[3]=="20,19,18,17,16,15,14,13,12,11")
+-- Equal levels have deterministic bag/slot ordering; fewer than ten stay unconfirmed.
+loadRows({200,200,200,200,200,200,200,200,200,200,200});click(1);autofill.scripts.OnClick();tick()
+check(request()[3]=="1,2,3,4,5,6,7,8,9,10")
+loadRows({187,245,200});click(2);local beforeAutofill=#sent;autofill.scripts.OnClick();tick()
+check(picker:IsShown() and clear:IsShown() and not button.enabled and #sent==beforeAutofill)
+local emptyLabel
+for _,frame in ipairs(frames) do if frame.parent==picker and frame.text=="No compatible unselected items in your bags." then emptyLabel=frame end end
+check(emptyLabel:IsShown())
+clear.scripts.OnClick();check(not picker:IsShown() and not clear:IsShown())
+loadRows({});click(1);check(not autofill.enabled);autofill.scripts.OnClick();check(not clear:IsShown())
+-- Live inventory invalidation and restrictions cannot revive an autofill selection.
+loadRows(levels);click(1);event("BAG_UPDATE");autofill.scripts.OnClick();check(not clear:IsShown() and not button.enabled)
+loadRows(levels);click(1);combat=true;autofill.scripts.OnClick();check(not clear:IsShown());combat=false
+-- Neither Clear all nor autofill can alter a committed batch awaiting its receipt.
+loadRows({187,187,187,187,187,187,187,187,187,187});click(1);autofill.scripts.OnClick();tick();quote()
+button.scripts.OnClick();accept.scripts.OnClick();check(not clear.enabled)
+local pendingCount=#sent;clear.scripts.OnClick();autofill.scripts.OnClick()
+check(clear:IsShown() and #sent==pendingCount and ArcanaItemUpgradesDB.recyclingPending==id)
 print("PASS: "..checks.." recycling drag/picker, duplicate identity, stale quotes, retry/reload and restriction checks")
