@@ -16,18 +16,30 @@ end
 local instruction=Label(panel,"Drag gear into an empty slot, or click a slot to choose an item.",8,-2,544,"GameFontHighlightSmall")
 local countLabel=Label(panel,"Items selected: 0/10",8,-196,300)
 local averageLabel=Label(panel,"Average ilvl: --",320,-196,225)
-local grossLabel=Label(panel,"Total vendor value",8,-230,270)
-local taxLabel=Label(panel,"Recycling tax — 50%",8,-260,270)
-local netLabel=Label(panel,"Gold in your satchel",8,-294,270,"GameFontNormalLarge")
-local grossValue=Label(panel,"0g 0s 0c",295,-230,250)
-local taxValue=Label(panel,"−0g 0s 0c",295,-260,250)
-local netValue=Label(panel,"0g 0s 0c",295,-294,250,"GameFontNormalLarge")
-local chances=Label(panel,"Independent rolls: 50% Tempering • 15% Recalibration • 15% Ascension",8,-332,544,"GameFontHighlightSmall")
+local composition=Label(panel,"PvP: 0/10 (0%)  ·  PvE: 0/10 (0%)",8,-216,544,"GameFontHighlightSmall")
+local guaranteed=Label(panel,"Guaranteed equipment: select ten items.",8,-336,544,"GameFontHighlightSmall")
+local grossLabel=Label(panel,"Total vendor value",8,-245,270)
+local taxLabel=Label(panel,"Recycling tax — 50%",8,-273,270)
+local netLabel=Label(panel,"Gold in your satchel",8,-304,270,"GameFontNormalLarge")
+local grossValue=Label(panel,"0g 0s 0c",295,-245,250)
+local taxValue=Label(panel,"−0g 0s 0c",295,-273,250)
+local netValue=Label(panel,"0g 0s 0c",295,-304,250,"GameFontNormalLarge")
+local chances=Label(panel,"Independent rolls: 50% Tempering • 15% Recalibration • 15% Ascension",8,-360,544,"GameFontHighlightSmall")
 local tierButton=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
-tierButton:SetPoint("TOPLEFT",8,-355);tierButton:SetSize(175,22);tierButton:SetText("Ascension tier odds")
-local tierText=Label(panel,"Fill all ten slots to see the tier odds.",8,-382,544,"GameFontHighlightSmall")
+tierButton:SetPoint("TOPLEFT",8,-388);tierButton:SetSize(175,22);tierButton:SetText("Ascension tier odds")
+local tierText=Label(panel,"Fill all ten slots to see the tier odds.",8,-418,544,"GameFontHighlightSmall")
 tierText:Hide()
 tierButton:SetScript("OnClick",function() if tierText:IsShown() then tierText:Hide() else tierText:Show() end end)
+local equipmentButton=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+equipmentButton:SetPoint("TOPLEFT",200,-388);equipmentButton:SetSize(175,22);equipmentButton:SetText("Equipment level odds")
+local odds=CreateFrame("Frame",nil,host)
+odds:SetPoint("CENTER");odds:SetSize(540,310);odds:SetFrameStrata("FULLSCREEN_DIALOG");odds:EnableMouse(true)
+odds:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
+odds:SetBackdropColor(0.03,0.03,0.03,1);odds:Hide()
+local oddsText=Label(odds,"Select ten items to receive equipment odds.",18,-38,500,"GameFontHighlight")
+local oddsClose=CreateFrame("Button",nil,odds,"UIPanelCloseButton");oddsClose:SetPoint("TOPRIGHT",-3,-3)
+oddsClose:SetScript("OnClick",function() odds:Hide() end)
+equipmentButton:SetScript("OnClick",function() if odds:IsShown() then odds:Hide() else odds:Show() end end)
 local recycle=CreateFrame("Button","ArcanaRecycleButton",panel,"UIPanelButtonTemplate")
 recycle:SetPoint("BOTTOM",0,2);recycle:SetSize(175,28);recycle:SetText("Recycle");recycle:Disable()
 local picker=CreateFrame("Frame","ArcanaRecyclingPicker",host)
@@ -57,8 +69,8 @@ local function ClearOperation()
     if ArcanaItemUpgradesDB then ArcanaItemUpgradesDB.recyclingPending=nil end
 end
 Invalidate=function()
-    quote=nil;quoteAt=nil
-    if pending and pending.kind=="QUOTE" then pending=nil end
+    quote=nil;quoteAt=nil;odds:Hide()
+    if pending and pending.kind=="QUOTE2" then pending=nil end
     StaticPopup_Hide("ARCANA_RECYCLE_CONFIRM")
 end
 Sync=function()
@@ -127,7 +139,7 @@ local function RenderPicker()
         local row=pickerItems[index+offset];button.row=row
         if row then
             button.icon:SetTexture(GetItemIcon(row.entry));button.label:SetText(ItemName(row))
-            button.value:SetText("ilvl "..row.ilvl.."  ·  "..P.Money(row.price));button:Show()
+            button.value:SetText("ilvl "..row.ilvl..(row.pvp==1 and " PvP " or " PvE ")..P.Money(row.price));button:Show()
         else button:Hide() end
     end
 end
@@ -136,8 +148,8 @@ for index=1,10 do
     button:SetSize(472,26);button:SetPoint("TOPLEFT",18,-54-(index-1)*27)
     button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     button.icon=button:CreateTexture(nil,"ARTWORK");button.icon:SetPoint("LEFT");button.icon:SetSize(22,22)
-    button.label=Label(button,"",28,-1,280,"GameFontHighlightSmall")
-    button.value=Label(button,"",310,-5,162,"GameFontHighlightSmall");button.value:SetJustifyH("RIGHT")
+    button.label=Label(button,"",28,-1,246,"GameFontHighlightSmall")
+    button.value=Label(button,"",278,-5,194,"GameFontHighlightSmall");button.value:SetJustifyH("RIGHT")
     button:SetScript("OnClick",function(self) if self.row then Add(pickerIndex,self.row.guid) end end)
     button:SetScript("OnEnter",function(self)
         if self.row and valid then GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetBagItem(self.row.bag,self.row.slot);GameTooltip:Show() end
@@ -152,24 +164,38 @@ OpenPicker=function(index)
     scroll.offset=0;RenderPicker();picker:Show()
 end
 Render=function()
-    local totals=P.Totals(selected,rows) or {count=0,gross=0,tax=0,gold=0,levels=0}
+    local totals=P.Totals(selected,rows) or {count=0,gross=0,tax=0,gold=0,levels=0,pvp=0}
     for index,button in ipairs(buttons) do
         local row=rows[selected[index]]
         button.icon:SetTexture(row and GetItemIcon(row.entry) or "Interface\\Buttons\\UI-PlusButton-Up")
-        button.label:SetText(row and (GetItemInfo(row.entry) or "Item "..row.entry) or "Click to choose")
+        button.label:SetText(row and ((row.pvp==1 and "[PvP] " or "[PvE] ")..(GetItemInfo(row.entry) or "Item "..row.entry)) or "Click to choose")
     end
     countLabel:SetText("Items selected: "..totals.count.."/10")
     averageLabel:SetText("Average ilvl: "..(totals.count>0 and string.format("%.1f",totals.levels/totals.count) or "--"))
+    composition:SetText(string.format("PvP: %d/10 (%d%%)  ·  PvE: %d/10 (%d%%)",totals.pvp,totals.pvp*10,totals.count-totals.pvp,(totals.count-totals.pvp)*10))
+    guaranteed:SetText(totals.count==10 and (totals.levels<2000 and "Guaranteed: 1 soulbound blue ilvl 200 item. Tier pieces match your class." or "Guaranteed: 1 soulbound epic. Tier pieces match your class; any spec.") or "Guaranteed equipment: select ten items.")
     grossValue:SetText(valid and P.Money(totals.gross) or "Updating...")
     taxValue:SetText(valid and ("−"..P.Money(totals.tax)) or "Updating...")
     netValue:SetText(valid and P.Money(totals.gold) or "Updating...")
     local enabled=Active() and valid and ready and LocalAllowed() and quote and quote.expires>GetTime() and not operation and not pending
     if enabled then recycle:Enable() else recycle:Disable() end
     if quote then
+        local sections={"Equipment odds within each category (any spec)."}
+        for category=0,1 do
+            local parts={}
+            for i,level in ipairs(P.Levels) do
+                local chance=quote.gear[category][i]*100
+                local display=chance>0 and chance<0.01 and "<0.01%" or string.format("%.2f%%",chance)
+                parts[i]=level..": "..display
+            end
+            sections[#sections+1]=(category==1 and "PvP" or "PvE").." — "..(category==1 and quote.pvp*10 or (10-quote.pvp)*10).."% category chance:\n"..table.concat(parts,"  ·  ")
+        end
+        sections[#sections+1]="Class-restricted pieces match your class. Other gear may suit another class."
+        oddsText:SetText(table.concat(sections,"\n\n"))
         local names={"Heroic","Runic","Crusader","Icecrown","Apex"};local parts={}
         for i,name in ipairs(names) do parts[i]=name..": "..string.format("%.2f%%",quote.probabilities[i]*100) end
         tierText:SetText("If the 15% Ascension roll succeeds:\n"..table.concat(parts,"  ·  "))
-    else tierText:SetText("Fill all ten slots to receive the current Ascension tier odds.") end
+    else tierText:SetText("Fill all ten slots to receive the current Ascension tier odds.");oddsText:SetText("Select ten items to receive equipment odds.") end
     if Active() then
         host.ServiceStatus:SetText(operation and "Checking the saved recycling result..." or pending and "Waiting for the realm..." or reason)
     end
@@ -193,7 +219,7 @@ StaticPopupDialogs.ARCANA_RECYCLE_CONFIRM={
 recycle:SetScript("OnClick",function()
     if not quote or not valid or not ready or not LocalAllowed() or pending or operation or quote.expires<=GetTime() then return end
     local names={};for i=1,10 do names[i]=ItemName(rows[selected[i]]) end
-    local summary="Total vendor value: "..P.Money(quote.gross).."\nRecycling tax (50%): −"..P.Money(quote.tax).."\nGold in your satchel: "..P.Money(quote.gold)
+    local summary=(quote.levels<2000 and "Guaranteed: blue ilvl 200" or "Guaranteed: epic").."\nPvP: "..(quote.pvp*10).."% / PvE: "..((10-quote.pvp)*10).."%\nTotal vendor value: "..P.Money(quote.gross).."\nRecycling tax (50%): −"..P.Money(quote.tax).."\nGold in your satchel: "..P.Money(quote.gold)
     StaticPopup_Show("ARCANA_RECYCLE_CONFIRM",table.concat(names,"\n"),summary,quote.id)
 end)
 -- Secure post-hooks preserve native bag controls and also support bag addons that
@@ -214,7 +240,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
         local f=P.Split(message)
         if tonumber(f[2])~=pending.request then return end
         if pending.kind=="SYNC" and f[1]=="BEGIN" then
-            pending.rows={};pending.positions={};pending.count=0;pending.invalid=#f~=5 or f[3]~="1" or (f[4]~="0" and f[4]~="1")
+            pending.rows={};pending.positions={};pending.count=0;pending.invalid=#f~=5 or f[3]~="2" or (f[4]~="0" and f[4]~="1")
             pending.ready=f[4]=="1";pending.reason=f[5] or ""
         elseif pending.kind=="SYNC" and f[1]=="ITEM" and pending.rows then
             local row=P.Row(f)
@@ -230,12 +256,19 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
                 if reason=="" then reason="Select ten items to recycle." end
             end
             pending=nil;Changed()
-        elseif pending.kind=="QUOTE" and f[1]=="QUOTE" then
-            if pending.generation==generation and pending.selection==P.Selection(selected,rows) then
-                quote=P.Quote(f,selected,rows,GetTime())
+        elseif pending.kind=="QUOTE2" and f[1]=="QUOTE" then
+            if pending.generation==generation and pending.selection==P.Selection(selected,rows) and not pending.quote then
+                pending.quote=P.Quote(f,selected,rows,GetTime())
+            else pending.invalid=true end
+            if not pending.quote then pending.invalid=true end
+        elseif pending.kind=="QUOTE2" and f[1]=="GEAR" then
+            if not P.Gear(pending.quote,f) then pending.invalid=true end
+        elseif pending.kind=="QUOTE2" and f[1]=="QEND" then
+            if not pending.invalid and pending.generation==generation and pending.selection==P.Selection(selected,rows) then
+                quote=P.Complete(pending.quote,f,GetTime())
             end
             pending=nil
-            reason=quote and "Review your items and gold return, then recycle." or "Invalid quote. Refresh to try again."
+            reason=quote and "Review your items, reward odds and gold return, then recycle." or "Invalid quote. Refresh to try again."
         elseif (pending.kind=="COMMIT" or pending.kind=="STATUS") and f[1]=="RESULT" and #f==5 and f[3]==operation and
             P.Integer(f[4],4294967295) and tonumber(f[4])>0 and (f[5]=="0" or f[5]=="1") then
             ClearOperation();pending=nil;selected={};Invalidate();valid=false
@@ -280,7 +313,7 @@ events:SetScript("OnUpdate",function()
     if quoteAt and now>=quoteAt and not pending and not operation and Active() and valid and ready and LocalAllowed() then
         if now-lastRequest<0.55 then quoteAt=lastRequest+0.55;return end
         quoteAt=nil;local selection=P.Selection(selected,rows)
-        if selection then Request("QUOTE",selection);Render() end
+        if selection then Request("QUOTE2",selection);Render() end
     end
 end)
 host:HookScript("OnHide",function() picker:Hide();Invalidate();drag=nil;if not operation then pending=nil;refreshAt=nil end end)

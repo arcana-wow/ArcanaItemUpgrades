@@ -57,8 +57,8 @@ local function request() return P.Split(sent[#sent]) end
 local function receive(text,sender) event("CHAT_MSG_ADDON","ARCY",text,"WHISPER",sender or "Tester") end
 local function snapshot(count)
     local r=request();check(r[1]=="SYNC")
-    receive("BEGIN\t"..r[2].."\t1\t1\t")
-    for i=1,count or 11 do receive("ITEM\t"..r[2].."\t"..i.."\t0\t"..i.."\t123\t187\t101") end
+    receive("BEGIN\t"..r[2].."\t2\t1\t")
+    for i=1,count or 11 do receive("ITEM\t"..r[2].."\t"..i.."\t0\t"..i.."\t123\t187\t101\t0") end
     receive("END\t"..r[2])
 end
 local function pickerRows()
@@ -77,8 +77,14 @@ local function choose(index,guid)
 end
 local id="0123456789abcdef0123456789abcdef"
 local function quote(requestId)
-    local r=request();check(r[1]=="QUOTE")
-    receive("QUOTE\t"..(requestId or r[2]).."\t"..id.."\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2")
+    local r=request();check(r[1]=="QUOTE2")
+    receive("QUOTE\t"..(requestId or r[2]).."\t"..id.."\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2\t0")
+    check(not button.enabled)
+    for category=0,1 do for part=0,1 do
+        receive("GEAR\t"..(requestId or r[2]).."\t"..id.."\t"..category.."\t"..part.."\t"..(part==0 and "1.0" or "0.0").."\t0.0\t0.0\t0.0\t0.0\t0.0")
+        check(not button.enabled)
+    end end
+    receive("QEND\t"..(requestId or r[2]).."\t"..id)
 end
 host:RecyclingTabChanged("Recycle");snapshot()
 check(not button.enabled)
@@ -94,7 +100,7 @@ named.ArcanaRecycleSlot3.scripts.OnReceiveDrag();check(not cursor)
 for i=4,10 do choose(i,i) end
 tick();local old=request()[2]
 quote(tostring(tonumber(old)+1));check(not button.enabled) -- Out-of-order reply.
-receive("QUOTE\t"..old.."\t"..id.."\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2","Spoofer")
+receive("QUOTE\t"..old.."\t"..id.."\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2\t0","Spoofer")
 check(not button.enabled)
 quote();check(button.enabled)
 button.scripts.OnClick();check(popup and popup.text:find("0g 10s 10c",1,true) and popup.text:find("0g 5s 5c",1,true))
@@ -122,9 +128,9 @@ level=80;dead=false;combat=false;inside=false;casting=false;channeling=false
 choose(1,1);event("BAG_UPDATE");check(not button.enabled);PickupContainerItem(0,2);click(2);check(cursor==123);ClearCursor()
 tick();snapshot()
 -- Incomplete, malformed and duplicate snapshots cannot re-enable consumption.
-tick();host:RefreshRecycling();r=request();receive("BEGIN\t"..r[2].."\t1\t1\t")
-receive("ITEM\t"..r[2].."\t1\t0\t1\t123\t187\t101")
-receive("ITEM\t"..r[2].."\t1\t0\t2\t123\t187\t101")
+tick();host:RefreshRecycling();r=request();receive("BEGIN\t"..r[2].."\t2\t1\t")
+receive("ITEM\t"..r[2].."\t1\t0\t1\t123\t187\t101\t0")
+receive("ITEM\t"..r[2].."\t1\t0\t2\t123\t187\t101\t0")
 receive("END\t"..r[2]);click(2);check(not named.ArcanaRecyclingPicker:IsShown())
 tick();host:RefreshRecycling();tick(6);check(not button.enabled)
 host.serviceTab="Tempering";host:RecyclingTabChanged("Tempering");check(not named.ArcanaRecyclingPanel:IsShown())
