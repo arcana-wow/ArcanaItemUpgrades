@@ -107,6 +107,25 @@ function P.Selection(selected, rows)
     for i=1,10 do guids[i]=tostring(selected[i]) end
     return table.concat(guids,",")
 end
+function P.NextEmpty(selected, after)
+    for offset=1,10 do
+        local index=((after or 0)+offset-1)%10+1
+        if not selected[index] then return index end
+    end
+end
+function P.Autofill(rows)
+    local items={}
+    for _,row in pairs(rows) do items[#items+1]=row end
+    table.sort(items,function(a,b)
+        if a.ilvl~=b.ilvl then return a.ilvl>b.ilvl end
+        if a.bag~=b.bag then return a.bag<b.bag end
+        if a.slot~=b.slot then return a.slot<b.slot end
+        return a.guid<b.guid
+    end)
+    local selected={}
+    for index=1,math.min(10,#items) do selected[index]=items[index].guid end
+    return selected
+end
 function P.Money(copper)
     return string.format("%dg %ds %dc",math.floor(copper/10000),math.floor(copper/100)%100,copper%100)
 end

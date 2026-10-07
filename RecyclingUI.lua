@@ -15,6 +15,8 @@ local function Label(parent,text,x,y,width,font)
 end
 local instruction=Label(panel,"Drag gear into an empty slot, or click a slot to choose an item.",8,-2,544,"GameFontHighlightSmall")
 local average=Label(panel,"Average ilvl: --",8,-204,544,"GameFontHighlight")
+local clear=CreateFrame("Button","ArcanaRecycleClearAll",panel,"UIPanelButtonTemplate")
+clear:SetPoint("TOPRIGHT",-8,-198);clear:SetSize(100,24);clear:SetText("Clear all");clear:Hide()
 local description=Label(panel,table.concat({
     "• The item you receive will most likely be close to the average ilvl, sometimes higher or lower.",
     "• More PvP gear means better PvP odds. More PvE gear means better PvE odds.",
@@ -52,14 +54,23 @@ cancel:SetScript("OnClick",DismissConfirmation)
 confirmation:SetScript("OnKeyDown",function(_,key) if key=="ESCAPE" then DismissConfirmation() end end)
 local picker=CreateFrame("Frame","ArcanaRecyclingPicker",host)
 picker:SetPoint("CENTER");picker:SetSize(520,355);picker:SetFrameStrata("FULLSCREEN_DIALOG");picker:EnableMouse(true)
+picker:SetMovable(true);picker:SetClampedToScreen(true)
 picker:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
 picker:SetBackdropColor(0.03,0.03,0.03,1);picker:Hide()
 local pickerTitle=Label(picker,"Choose an item",18,-18,450,"GameFontNormalLarge")
+local pickerDrag=CreateFrame("Frame","ArcanaRecyclingPickerDrag",picker)
+pickerDrag:SetPoint("TOPLEFT",6,-6);pickerDrag:SetSize(476,38);pickerDrag:EnableMouse(true)
+pickerDrag:RegisterForDrag("LeftButton")
+pickerDrag:SetScript("OnDragStart",function() picker:StartMoving() end)
+pickerDrag:SetScript("OnDragStop",function() picker:StopMovingOrSizing() end)
+picker:SetScript("OnHide",function() picker:StopMovingOrSizing();GameTooltip:Hide() end)
 local pickerEmpty=Label(picker,"No compatible unselected items in your bags.",18,-75,470)
 local pickerClose=CreateFrame("Button",nil,picker,"UIPanelCloseButton");pickerClose:SetPoint("TOPRIGHT",-3,-3)
 pickerClose:SetScript("OnClick",function() picker:Hide() end)
 local scroll=CreateFrame("ScrollFrame","ArcanaRecyclingPickerScroll",picker,"FauxScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT",14,-52);scroll:SetPoint("BOTTOMRIGHT",-34,18)
+scroll:SetPoint("TOPLEFT",14,-52);scroll:SetPoint("BOTTOMRIGHT",-34,60)
+local autofill=CreateFrame("Button","ArcanaRecycleAutofill",picker,"UIPanelButtonTemplate")
+autofill:SetPoint("BOTTOMRIGHT",-18,14);autofill:SetSize(180,24);autofill:SetText("Autofill highest ilvl")
 local pickerIndex,pickerItems=nil,{}
 local function Active() return host:IsShown() and host.serviceTab=="Recycle" end
 local function LocalAllowed()
@@ -86,6 +97,7 @@ Invalidate=function()
 end
 Sync=function()
     if GetTime()-lastRequest<0.55 then refreshAt=lastRequest+0.55;return end
+    refreshAt=nil
     Invalidate();picker:Hide();drag=nil
     if operation then Request("STATUS",operation)
     else valid=false;Request("SYNC") end
@@ -102,9 +114,9 @@ local function Changed()
     Invalidate();QueueQuote();Render()
 end
 local function Add(index,guid)
-    if not valid or not ready or operation or not LocalAllowed() then return false end
+    if not Active() or not valid or not ready or operation or not LocalAllowed() then return false end
     if not P.Add(selected,rows,index,guid) then reason="Choose an empty slot and an item not already selected.";NotifyError(reason);Render();return false end
-    picker:Hide();Changed();return true
+    Changed();return true
 end
 local function Drop(index)
     local kind,entry=GetCursorInfo()
@@ -114,7 +126,7 @@ local function Drop(index)
         rows[origin.guid].entry~=entry or positions[origin.bag..":"..origin.slot]~=origin.guid then
         reason="That item's bag position could not be verified. Refresh and drag it again.";NotifyError(reason);Render();return
     end
-    if Add(index,origin.guid) then ClearCursor();drag=nil end
+    if Add(index,origin.guid) then picker:Hide();ClearCursor();drag=nil end
 end
 for index=1,10 do
     local slot=index
@@ -144,31 +156,51 @@ local function RenderPicker()
     local used={};for i=1,10 do if selected[i] then used[selected[i]]=true end end
     for guid,row in pairs(rows) do if not used[guid] then pickerItems[#pickerItems+1]=row end end
     table.sort(pickerItems,function(a,b) return a.bag==b.bag and a.slot<b.slot or a.bag<b.bag end)
-    FauxScrollFrame_Update(scroll,#pickerItems,10,27)
-    local offset=FauxScrollFrame_GetOffset(scroll)
+    local offset=math.min(FauxScrollFrame_GetOffset(scroll),math.max(0,#pickerItems-9))
+    scroll.offset=offset
+    FauxScrollFrame_Update(scroll,#pickerItems,9,27)
+    local bar=_G[scroll:GetName().."ScrollBar"]
+    if bar and bar:GetValue()~=offset*27 then bar:SetValue(offset*27) end
     if #pickerItems==0 then pickerEmpty:Show() else pickerEmpty:Hide() end
     for index,button in ipairs(pickerRows) do
         local row=pickerItems[index+offset];button.row=row
         if row then
             button.icon:SetTexture(GetItemIcon(row.entry));button.label:SetText(ItemName(row))
-            button.value:SetText("ilvl "..row.ilvl..(row.pvp==1 and " PvP " or " PvE ")..P.Money(row.price));button:Show()
+            button.value:SetText("ilvl "..row.ilvl);button:Show()
         else button:Hide() end
     end
 end
-for index=1,10 do
+local function AdvancePicker(after)
+    pickerIndex=P.NextEmpty(selected,after)
+    GameTooltip:Hide()
+    if not pickerIndex then picker:Hide();return end
+    pickerTitle:SetText("Choose an item for slot "..pickerIndex)
+    RenderPicker()
+end
+for index=1,9 do
     local button=CreateFrame("Button",nil,picker)
     button:SetSize(472,26);button:SetPoint("TOPLEFT",18,-54-(index-1)*27)
     button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     button.icon=button:CreateTexture(nil,"ARTWORK");button.icon:SetPoint("LEFT");button.icon:SetSize(22,22)
-    button.label=Label(button,"",28,-1,246,"GameFontHighlightSmall")
-    button.value=Label(button,"",278,-5,194,"GameFontHighlightSmall");button.value:SetJustifyH("RIGHT")
-    button:SetScript("OnClick",function(self) if self.row then Add(pickerIndex,self.row.guid) end end)
+    button.label=Label(button,"",28,-1,360,"GameFontHighlightSmall")
+    button.value=Label(button,"",396,-5,76,"GameFontHighlightSmall");button.value:SetJustifyH("RIGHT")
+    button:SetScript("OnClick",function(self)
+        if picker:IsShown() and self.row and Add(pickerIndex,self.row.guid) then AdvancePicker(pickerIndex) end
+    end)
     button:SetScript("OnEnter",function(self)
         if self.row and valid then GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetBagItem(self.row.bag,self.row.slot);GameTooltip:Show() end
     end)
     button:SetScript("OnLeave",function() GameTooltip:Hide() end)
     pickerRows[index]=button
 end
+clear:SetScript("OnClick",function()
+    if operation or not Active() then return end
+    selected={};drag=nil;picker:Hide();Changed()
+end)
+autofill:SetScript("OnClick",function()
+    if not picker:IsShown() or not Active() or not valid or not ready or operation or not LocalAllowed() then return end
+    selected=P.Autofill(rows);drag=nil;Changed();AdvancePicker(0)
+end)
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,27,RenderPicker) end)
 OpenPicker=function(index)
     if not valid or not ready or operation or not LocalAllowed() then reason="Refresh in a safe location before choosing items.";NotifyError(reason);Render();return end
@@ -178,6 +210,9 @@ end
 Render=function()
     local totals=valid and P.Totals(selected,rows)
     average:SetText("Average ilvl: "..(totals and totals.count>0 and string.format("%.1f",totals.levels/totals.count) or "--"))
+    if next(selected) then clear:Show() else clear:Hide() end
+    if operation then clear:Disable() else clear:Enable() end
+    if valid and ready and not operation and LocalAllowed() and next(rows) then autofill:Enable() else autofill:Disable() end
     for index,button in ipairs(buttons) do
         local row=rows[selected[index]]
         button.icon:SetTexture(row and GetItemIcon(row.entry) or "Interface\\Buttons\\UI-PlusButton-Up")
