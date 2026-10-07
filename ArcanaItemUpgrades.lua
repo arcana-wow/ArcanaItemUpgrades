@@ -333,6 +333,7 @@ frame.TemperingButton = upgradeButton
 frame.ServiceSubtitle = subtitle
 frame.ServiceStatus = status
 frame.ServiceEligibilityText = locationText
+frame.EquipmentControls = {list, selectedText, locationText}
 
 sourceFrame = CreateFrame("Frame", "ArcanaItemUpgradeSourceFrame", frame)
 sourceFrame:SetWidth(400)
@@ -513,6 +514,7 @@ end
 
 upgradeButton:SetScript("OnClick", ShowSourceChooser)
 refresh:SetScript("OnClick", function()
+    if frame.serviceTab == "Recycle" and frame.RefreshRecycling then frame:RefreshRecycling();return end
     RequestSync(true)
 end)
 
@@ -545,6 +547,11 @@ local function OrderedSlots()
 end
 
 function frame:UpdateDisplay()
+    if self.serviceTab == "Recycle" then
+        if self.ApplyServiceVisibility then self:ApplyServiceVisibility() end
+        if self.RenderRecycling then self:RenderRecycling() end
+        return
+    end
     local ordered = OrderedSlots()
     if state.selected and not SelectedSlot(state.selected) then state.selected = nil end
     if not state.selected and ordered[1] then state.selected = ordered[1].slot end

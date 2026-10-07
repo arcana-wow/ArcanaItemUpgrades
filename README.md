@@ -1,5 +1,30 @@
 # ArcanaItemUpgrades
 
+## Recycling (1.11.0)
+
+The Recycle tab accepts exactly ten carried equipment items of current ilvl 187
+or higher at level 80. Drag an item from a bag into an empty slot, or click an
+empty slot to choose from compatible inventory items. Right-click a filled slot
+to remove it. Different copies of the same item are tracked separately.
+
+Total vendor value, the 50% recycling tax and the gold returned are displayed
+before confirmation. Rewards arrive inside an **Arcana Salvage Satchel**. Open it
+from your bags to collect gold and any successful independent bonus rolls:
+50% Tempering, 15% Recalibration and 15% Ascension. Expand the Ascension tier odds
+to see how the selected items' average ilvl affects the five possible tiers.
+
+Recycling destroys the selected items and their gems, enchants, Tempering and
+Affixes. A quote lasts 30 seconds and is invalidated by inventory changes.
+The addon checks the saved result after a missed reply or reload, so reconnecting
+does not submit another batch. Timed Tempering rewards expire 24 hours after
+recycling even while the satchel is unopened. Full bags or the gold cap leave
+unclaimed contents inside the satchel.
+
+Run `lua5.1 tests/recycling_protocol_test.lua` and
+`lua5.1 tests/recycling_ui_test.lua` from this addon directory. CI also runs all
+existing item-service Lua suites. Actual UI scale and native bag-addon dragging
+still require review in the 3.3.5a client.
+
 The optional World of Warcraft 3.3.5a companion UI for Arcana's server-side
 item upgrade system.
 

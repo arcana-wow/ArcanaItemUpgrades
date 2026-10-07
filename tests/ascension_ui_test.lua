@@ -36,6 +36,7 @@ ArcanaItemUpgradesFrame=CreateFrame("Frame")
 local host=ArcanaItemUpgradesFrame
 host.TemperingButton=CreateFrame("Button");host.ServiceSubtitle=CreateFrame("Font")
 host.AffixControls={CreateFrame("Button"),CreateFrame("Font")}
+host.EquipmentControls={CreateFrame("Frame"),CreateFrame("Font")}
 host.ServiceEligibilityText=CreateFrame("Font")
 function host:GetAffixDescription() return nil end
 function host:GetSelectedEquipmentSlot() return 15 end

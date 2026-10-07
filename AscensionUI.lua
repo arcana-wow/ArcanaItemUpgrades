@@ -7,6 +7,7 @@ local explanations = {
     Tempering = "Improve your equipped item's stats by 5% per rank, up to 5 ranks.",
     Affixes = "Reroll an item's bonus stat using a Recalibration Sigil.",
     Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
+    Recycle = "Recycle exactly 10 carried items of ilvl 187 or higher. Requires level 80.",
 }
 local function TokenItemLink(token)
     local color=token==194704 and "ffff8000" or "ffa335ee"
@@ -106,7 +107,10 @@ local function Available(row)
         not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and not inside and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
-    self:SetHeight(self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
+    self:SetHeight(self.serviceTab=="Recycle" and 640 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
+    for _,control in ipairs(self.EquipmentControls or {}) do
+        if self.serviceTab=="Recycle" then control:Hide() else control:Show() end
+    end
     if self.serviceTab=="Tempering" then self.TemperingButton:Show() else self.TemperingButton:Hide() end
     for _,control in ipairs(self.AffixControls or {}) do
         if self.serviceTab=="Affixes" then control:Show() else control:Hide() end
@@ -181,13 +185,15 @@ function frame:SetServiceTab(tab)
     if ArcanaItemUpgradeSourceFrame then ArcanaItemUpgradeSourceFrame:Hide() end
     StaticPopup_Hide("ARCANA_AFFIX_CONFIRM");StaticPopup_Hide("ARCANA_ASCENSION_CONFIRM")
     StaticPopup_Hide("ARCANA_ITEM_UPGRADE_CONFIRM");StaticPopup_Hide("ARCANA_ITEM_UPGRADE_LEGENDARY_CONFIRM")
+    StaticPopup_Hide("ARCANA_RECYCLE_CONFIRM")
     for name,button in pairs(tabs) do if name==tab then button:Disable() else button:Enable() end end
     self:UpdateDisplay()
     if tab=="Ascension" then Sync() end
+    if self.RecyclingTabChanged then self:RecyclingTabChanged(tab) end
 end
-for i,name in ipairs({"Tempering","Affixes","Ascension"}) do
+for i,name in ipairs({"Tempering","Affixes","Ascension","Recycle"}) do
     local button=CreateFrame("Button","ArcanaUpgradeTab"..i,frame,"UIPanelButtonTemplate")
-    button:SetSize(170,26);button:SetPoint("TOPLEFT",31+(i-1)*184,-47);button:SetText(name)
+    button:SetSize(130,26);button:SetPoint("TOPLEFT",25+(i-1)*140,-47);button:SetText(name)
     button:SetScript("OnClick",function() frame:SetServiceTab(name) end);tabs[name]=button
 end
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM={
