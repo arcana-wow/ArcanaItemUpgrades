@@ -5,43 +5,50 @@ local valid,ready,reason=false,false,"Waiting for the realm..."
 local serial,generation,lastRequest=0,0,-1
 local pending,quote,operation,drag,refreshAt,quoteAt
 local buttons,pickerRows={},{}
-local Render,Sync,Invalidate,OpenPicker
+local Render,Sync,Invalidate,OpenPicker,QueueQuote
 local panel=CreateFrame("Frame","ArcanaRecyclingPanel",host)
-panel:SetPoint("TOPLEFT",20,-120);panel:SetSize(560,490);panel:Hide()
+panel:SetPoint("TOPLEFT",20,-120);panel:SetSize(560,400);panel:Hide()
 local function Label(parent,text,x,y,width,font)
     local label=parent:CreateFontString(nil,"OVERLAY",font or "GameFontHighlight")
     label:SetPoint("TOPLEFT",x,y);label:SetWidth(width);label:SetJustifyH("LEFT");label:SetText(text)
     return label
 end
 local instruction=Label(panel,"Drag gear into an empty slot, or click a slot to choose an item.",8,-2,544,"GameFontHighlightSmall")
-local countLabel=Label(panel,"Items selected: 0/10",8,-196,300)
-local averageLabel=Label(panel,"Average ilvl: --",320,-196,225)
-local composition=Label(panel,"PvP: 0/10 (0%)  ·  PvE: 0/10 (0%)",8,-216,544,"GameFontHighlightSmall")
-local guaranteed=Label(panel,"Guaranteed equipment: select ten items.",8,-336,544,"GameFontHighlightSmall")
-local grossLabel=Label(panel,"Total vendor value",8,-245,270)
-local taxLabel=Label(panel,"Recycling tax — 50%",8,-273,270)
-local netLabel=Label(panel,"Gold in your satchel",8,-304,270,"GameFontNormalLarge")
-local grossValue=Label(panel,"0g 0s 0c",295,-245,250)
-local taxValue=Label(panel,"−0g 0s 0c",295,-273,250)
-local netValue=Label(panel,"0g 0s 0c",295,-304,250,"GameFontNormalLarge")
-local chances=Label(panel,"Independent rolls: 50% Tempering • 15% Recalibration • 15% Ascension",8,-360,544,"GameFontHighlightSmall")
-local tierButton=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
-tierButton:SetPoint("TOPLEFT",8,-388);tierButton:SetSize(175,22);tierButton:SetText("Ascension tier odds")
-local tierText=Label(panel,"Fill all ten slots to see the tier odds.",8,-418,544,"GameFontHighlightSmall")
-tierText:Hide()
-tierButton:SetScript("OnClick",function() if tierText:IsShown() then tierText:Hide() else tierText:Show() end end)
-local equipmentButton=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
-equipmentButton:SetPoint("TOPLEFT",200,-388);equipmentButton:SetSize(175,22);equipmentButton:SetText("Equipment level odds")
-local odds=CreateFrame("Frame",nil,host)
-odds:SetPoint("CENTER");odds:SetSize(540,310);odds:SetFrameStrata("FULLSCREEN_DIALOG");odds:EnableMouse(true)
-odds:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
-odds:SetBackdropColor(0.03,0.03,0.03,1);odds:Hide()
-local oddsText=Label(odds,"Select ten items to receive equipment odds.",18,-38,500,"GameFontHighlight")
-local oddsClose=CreateFrame("Button",nil,odds,"UIPanelCloseButton");oddsClose:SetPoint("TOPRIGHT",-3,-3)
-oddsClose:SetScript("OnClick",function() odds:Hide() end)
-equipmentButton:SetScript("OnClick",function() if odds:IsShown() then odds:Hide() else odds:Show() end end)
+local description=Label(panel,table.concat({
+    "• The item you receive will most likely be close to the average ilvl, sometimes higher or lower.",
+    "• More PvP gear means better PvP odds. More PvE gear means better PvE odds.",
+    "• Bonus items are also possible.",
+    "• Recycling will also return you 50% of the total vendor value of all items.",
+},"\n\n"),8,-206,544,"GameFontHighlight")
 local recycle=CreateFrame("Button","ArcanaRecycleButton",panel,"UIPanelButtonTemplate")
 recycle:SetPoint("BOTTOM",0,2);recycle:SetSize(175,28);recycle:SetText("Recycle");recycle:Disable()
+-- A separate opaque dialog and mouse shield prevent the underlying addon
+-- from showing through or changing the selected batch during confirmation.
+local confirmation=CreateFrame("Frame","ArcanaRecyclingConfirmation",UIParent)
+confirmation:SetAllPoints(host);confirmation:SetFrameStrata("FULLSCREEN_DIALOG")
+confirmation:EnableMouse(true);confirmation:EnableKeyboard(true);confirmation:Hide()
+local dialog=CreateFrame("Frame","ArcanaRecycleConfirmDialog",confirmation)
+dialog:SetPoint("CENTER");dialog:SetSize(520,330);dialog:EnableMouse(true);dialog:SetAlpha(1)
+dialog:SetBackdrop({edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
+local background=dialog:CreateTexture(nil,"BACKGROUND")
+background:SetAllPoints();background:SetTexture(0.025,0.025,0.035,1)
+local confirmTitle=Label(dialog,"These 10 items will be permanently destroyed.",20,-20,480,"GameFontNormalLarge")
+local confirmItems=Label(dialog,"",20,-62,480)
+local confirmQuestion=Label(dialog,"Are you sure you want to proceed?",20,-260,480)
+confirmQuestion:ClearAllPoints();confirmQuestion:SetPoint("BOTTOM",0,66);confirmQuestion:SetJustifyH("CENTER")
+local accept=CreateFrame("Button","ArcanaRecycleConfirmAccept",dialog,"UIPanelButtonTemplate")
+accept:SetPoint("BOTTOM",-110,22);accept:SetSize(200,26);accept:SetText("Recycle")
+local cancel=CreateFrame("Button","ArcanaRecycleConfirmCancel",dialog,"UIPanelButtonTemplate")
+cancel:SetPoint("BOTTOM",110,22);cancel:SetSize(200,26);cancel:SetText(CANCEL)
+confirmation:SetScript("OnHide",function() confirmation.quoteId=nil end)
+local function DismissConfirmation()
+    confirmation:Hide()
+    if quote and quote.expires<=GetTime() then Invalidate();QueueQuote() end
+    Render()
+end
+cancel:SetScript("OnClick",DismissConfirmation)
+-- Consume Escape here before CloseSpecialWindows closes the host addon too.
+confirmation:SetScript("OnKeyDown",function(_,key) if key=="ESCAPE" then DismissConfirmation() end end)
 local picker=CreateFrame("Frame","ArcanaRecyclingPicker",host)
 picker:SetPoint("CENTER");picker:SetSize(520,355);picker:SetFrameStrata("FULLSCREEN_DIALOG");picker:EnableMouse(true)
 picker:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
@@ -58,6 +65,9 @@ local function LocalAllowed()
     return UnitLevel("player")==80 and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and
         not IsInInstance() and not UnitCastingInfo("player") and not UnitChannelInfo("player")
 end
+local function NotifyError(message)
+    if Active() and UIErrorsFrame then UIErrorsFrame:AddMessage(message,1,0.2,0.2) end
+end
 local function Request(kind,extra)
     serial=serial%2147483647+1;lastRequest=GetTime()
     pending={kind=kind,request=serial,deadline=GetTime()+5,selection=extra,generation=generation}
@@ -69,9 +79,9 @@ local function ClearOperation()
     if ArcanaItemUpgradesDB then ArcanaItemUpgradesDB.recyclingPending=nil end
 end
 Invalidate=function()
-    quote=nil;quoteAt=nil;odds:Hide()
+    quote=nil;quoteAt=nil
     if pending and pending.kind=="QUOTE2" then pending=nil end
-    StaticPopup_Hide("ARCANA_RECYCLE_CONFIRM")
+    confirmation:Hide()
 end
 Sync=function()
     if GetTime()-lastRequest<0.55 then refreshAt=lastRequest+0.55;return end
@@ -84,23 +94,24 @@ local function ItemName(row)
     local link=GetContainerItemLink(row.bag,row.slot)
     return link or GetItemInfo(row.entry) or ("Item "..row.entry)
 end
-local function Changed()
-    Invalidate()
+QueueQuote=function()
     if valid and not operation and P.Selection(selected,rows) then quoteAt=GetTime()+0.55 end
-    Render()
+end
+local function Changed()
+    Invalidate();QueueQuote();Render()
 end
 local function Add(index,guid)
     if not valid or not ready or operation or not LocalAllowed() then return false end
-    if not P.Add(selected,rows,index,guid) then reason="Choose an empty slot and an item not already selected.";Render();return false end
+    if not P.Add(selected,rows,index,guid) then reason="Choose an empty slot and an item not already selected.";NotifyError(reason);Render();return false end
     picker:Hide();Changed();return true
 end
 local function Drop(index)
     local kind,entry=GetCursorInfo()
-    if kind~="item" then reason="Drag an eligible item from one of your carried bags.";Render();return end
+    if kind~="item" then reason="Drag an eligible item from one of your carried bags.";NotifyError(reason);Render();return end
     local origin=drag
     if not origin or origin.generation~=generation or not valid or not rows[origin.guid] or
         rows[origin.guid].entry~=entry or positions[origin.bag..":"..origin.slot]~=origin.guid then
-        reason="That item's bag position could not be verified. Refresh and drag it again.";Render();return
+        reason="That item's bag position could not be verified. Refresh and drag it again.";NotifyError(reason);Render();return
     end
     if Add(index,origin.guid) then ClearCursor();drag=nil end
 end
@@ -159,68 +170,42 @@ for index=1,10 do
 end
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,27,RenderPicker) end)
 OpenPicker=function(index)
-    if not valid or not ready or operation or not LocalAllowed() then reason="Refresh in a safe location before choosing items.";Render();return end
+    if not valid or not ready or operation or not LocalAllowed() then reason="Refresh in a safe location before choosing items.";NotifyError(reason);Render();return end
     pickerIndex=index;pickerTitle:SetText("Choose an item for slot "..index)
     scroll.offset=0;RenderPicker();picker:Show()
 end
 Render=function()
-    local totals=P.Totals(selected,rows) or {count=0,gross=0,tax=0,gold=0,levels=0,pvp=0}
     for index,button in ipairs(buttons) do
         local row=rows[selected[index]]
         button.icon:SetTexture(row and GetItemIcon(row.entry) or "Interface\\Buttons\\UI-PlusButton-Up")
-        button.label:SetText(row and ((row.pvp==1 and "[PvP] " or "[PvE] ")..(GetItemInfo(row.entry) or "Item "..row.entry)) or "Click to choose")
+        button.label:SetText(row and (GetItemInfo(row.entry) or "Item "..row.entry) or "Click to choose")
     end
-    countLabel:SetText("Items selected: "..totals.count.."/10")
-    averageLabel:SetText("Average ilvl: "..(totals.count>0 and string.format("%.1f",totals.levels/totals.count) or "--"))
-    composition:SetText(string.format("PvP: %d/10 (%d%%)  ·  PvE: %d/10 (%d%%)",totals.pvp,totals.pvp*10,totals.count-totals.pvp,(totals.count-totals.pvp)*10))
-    guaranteed:SetText(totals.count==10 and (totals.levels<2000 and "Guaranteed: 1 soulbound blue ilvl 200 item. Tier pieces match your class." or "Guaranteed: 1 soulbound epic. Tier pieces match your class; any spec.") or "Guaranteed equipment: select ten items.")
-    grossValue:SetText(valid and P.Money(totals.gross) or "Updating...")
-    taxValue:SetText(valid and ("−"..P.Money(totals.tax)) or "Updating...")
-    netValue:SetText(valid and P.Money(totals.gold) or "Updating...")
     local enabled=Active() and valid and ready and LocalAllowed() and quote and quote.expires>GetTime() and not operation and not pending
     if enabled then recycle:Enable() else recycle:Disable() end
-    if quote then
-        local sections={"Equipment odds within each category (any spec)."}
-        for category=0,1 do
-            local parts={}
-            for i,level in ipairs(P.Levels) do
-                local chance=quote.gear[category][i]*100
-                local display=chance>0 and chance<0.01 and "<0.01%" or string.format("%.2f%%",chance)
-                parts[i]=level..": "..display
-            end
-            sections[#sections+1]=(category==1 and "PvP" or "PvE").." — "..(category==1 and quote.pvp*10 or (10-quote.pvp)*10).."% category chance:\n"..table.concat(parts,"  ·  ")
-        end
-        sections[#sections+1]="Class-restricted pieces match your class. Other gear may suit another class."
-        oddsText:SetText(table.concat(sections,"\n\n"))
-        local names={"Heroic","Runic","Crusader","Icecrown","Apex"};local parts={}
-        for i,name in ipairs(names) do parts[i]=name..": "..string.format("%.2f%%",quote.probabilities[i]*100) end
-        tierText:SetText("If the 15% Ascension roll succeeds:\n"..table.concat(parts,"  ·  "))
-    else tierText:SetText("Fill all ten slots to receive the current Ascension tier odds.");oddsText:SetText("Select ten items to receive equipment odds.") end
-    if Active() then
-        host.ServiceStatus:SetText(operation and "Checking the saved recycling result..." or pending and "Waiting for the realm..." or reason)
-    end
+    if Active() then host.ServiceStatus:SetText("");host.ServiceStatus:Hide() end
 end
 host.RenderRecycling=Render
 function host:RefreshRecycling() Sync() end
 function host:RecyclingTabChanged(tab)
     picker:Hide();Invalidate();drag=nil
     if not operation then pending=nil end
-    if tab=="Recycle" then panel:Show();Sync() else panel:Hide();refreshAt=nil end
+    if tab=="Recycle" then panel:Show();Sync() else panel:Hide();host.ServiceStatus:Show();refreshAt=nil end
 end
-StaticPopupDialogs.ARCANA_RECYCLE_CONFIRM={
-    text="Permanently recycle these 10 items?\n\n%s\n\n%s\n\nGems, enchants, Tempering and Affixes are destroyed. Bonus rewards are not guaranteed.",
-    button1="Recycle",button2=CANCEL,timeout=0,whileDead=false,hideOnEscape=true,preferredIndex=3,
-    OnAccept=function(_,id)
-        if not quote or quote.id~=id or quote.expires<=GetTime() or pending or operation or not valid or not ready or not Active() or not LocalAllowed() then return end
-        operation=id;ArcanaItemUpgradesDB=ArcanaItemUpgradesDB or {};ArcanaItemUpgradesDB.recyclingPending=id
-        Invalidate();Request("COMMIT",id);Render()
-    end,
-}
+local function CanRecycle()
+    return quote and valid and ready and Active() and LocalAllowed() and not pending and not operation and quote.expires>GetTime()
+end
+accept:SetScript("OnClick",function()
+    local id=confirmation.quoteId
+    if not confirmation:IsShown() or not CanRecycle() or quote.id~=id then return end
+    operation=id;ArcanaItemUpgradesDB=ArcanaItemUpgradesDB or {};ArcanaItemUpgradesDB.recyclingPending=id
+    Invalidate();Request("COMMIT",id);Render()
+end)
 recycle:SetScript("OnClick",function()
-    if not quote or not valid or not ready or not LocalAllowed() or pending or operation or quote.expires<=GetTime() then return end
+    if not CanRecycle() then return end
     local names={};for i=1,10 do names[i]=ItemName(rows[selected[i]]) end
-    local summary=(quote.levels<2000 and "Guaranteed: blue ilvl 200" or "Guaranteed: epic").."\nPvP: "..(quote.pvp*10).."% / PvE: "..((10-quote.pvp)*10).."%\nTotal vendor value: "..P.Money(quote.gross).."\nRecycling tax (50%): −"..P.Money(quote.tax).."\nGold in your satchel: "..P.Money(quote.gold)
-    StaticPopup_Show("ARCANA_RECYCLE_CONFIRM",table.concat(names,"\n"),summary,quote.id)
+    confirmItems:SetText(table.concat(names,"\n"))
+    dialog:SetHeight(math.max(330,confirmItems:GetStringHeight()+160))
+    confirmation.quoteId=quote.id;confirmation:Show()
 end)
 -- Secure post-hooks preserve native bag controls and also support bag addons that
 -- use the standard PickupContainerItem API. A cursor link alone is never identity.
@@ -249,7 +234,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
             if not row or pending.count>160 or pending.rows[row.guid] or pending.positions[key] then pending.invalid=true
             else pending.rows[row.guid]=row;pending.positions[key]=row.guid end
         elseif pending.kind=="SYNC" and f[1]=="END" then
-            if #f~=2 or not pending.rows or pending.invalid then valid=false;reason="Invalid inventory response. Refresh to try again."
+            if #f~=2 or not pending.rows or pending.invalid then valid=false;reason="Invalid inventory response. Refresh to try again.";NotifyError(reason)
             else
                 rows=pending.rows;positions=pending.positions;ready=pending.ready;reason=pending.reason;valid=true;generation=generation+1
                 for i=1,10 do if selected[i] and not rows[selected[i]] then selected[i]=nil end end
@@ -268,7 +253,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
                 quote=P.Complete(pending.quote,f,GetTime())
             end
             pending=nil
-            reason=quote and "Review your items, reward odds and gold return, then recycle." or "Invalid quote. Refresh to try again."
+            if not quote then NotifyError("Invalid quote. Refresh to try again.") end
         elseif (pending.kind=="COMMIT" or pending.kind=="STATUS") and f[1]=="RESULT" and #f==5 and f[3]==operation and
             P.Integer(f[4],4294967295) and tonumber(f[4])>0 and (f[5]=="0" or f[5]=="1") then
             ClearOperation();pending=nil;selected={};Invalidate();valid=false
@@ -278,7 +263,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
         elseif pending.kind=="STATUS" and f[1]=="MISSING" and #f==3 and f[3]==operation then
             ClearOperation();pending=nil;Invalidate();reason="No saved recycle was found. Refresh and review your items.";refreshAt=GetTime()+0.6
         elseif f[1]=="ERROR" and #f==3 then
-            pending=nil;Invalidate();reason=f[3]
+            pending=nil;Invalidate();reason=f[3];NotifyError(reason)
             if operation then refreshAt=GetTime()+5 end
         end
         Render();return
@@ -303,9 +288,10 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
 end)
 events:SetScript("OnUpdate",function()
     local now=GetTime()
-    if quote and now>=quote.expires then Invalidate();reason="Quote expired. Refresh to review this batch again.";Render() end
+    if quote and now>=quote.expires then Invalidate();QueueQuote();Render() end
     if pending and now>=pending.deadline then
         pending=nil;Invalidate();valid=false;reason="No response from the realm. Use Refresh to check again."
+        NotifyError(reason)
         if operation then refreshAt=now+1 end
         Render()
     end

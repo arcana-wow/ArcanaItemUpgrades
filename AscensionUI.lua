@@ -107,7 +107,7 @@ local function Available(row)
         not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and not inside and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
-    self:SetHeight(self.serviceTab=="Recycle" and 640 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
+    self:SetHeight(self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
     for _,control in ipairs(self.EquipmentControls or {}) do
         if self.serviceTab=="Recycle" then control:Hide() else control:Show() end
     end

@@ -191,7 +191,7 @@ local function ClearInspectionViews()
     local tooltip = GameTooltip
     local view = tooltip.arcanaAffixCache
     if view and view.inspection == inspection then
-        tooltip.arcanaAffixCache, tooltip.arcanaAffixHiddenInspection = nil, nil
+        tooltip.arcanaAffixCache, tooltip.arcanaAffixHiddenView = nil, nil
         if tooltip.arcanaAffixView == view then RemoveLine(tooltip); refreshTooltip = true end
     end
 end
@@ -287,7 +287,7 @@ local function Query(tooltip, context, first, second)
         tooltip.arcanaAffixCache = view
     end
     tooltip.arcanaAffixView = view
-    tooltip.arcanaAffixHiddenInspection = nil
+    tooltip.arcanaAffixHiddenView = nil
     if context == "E" and equipmentFresh and first <= 19 then
         local row = state.slots[first - 1]
         if P.Matches(row, link) then view.row = row; CancelRequest(view) end
@@ -481,16 +481,16 @@ local function HookTooltip(tooltip)
     end)
     tooltip:HookScript("OnHide", function(self)
         local view = self.arcanaAffixCache
-        if view and view.context == "I" then
-            -- InspectPaperDoll's OnUpdate calls SetOwner before SetInventoryItem.
+        if view and (view.context == "I" or view.context == "B") then
+            -- Bag providers and InspectPaperDoll call SetOwner before Set*Item.
             -- That intermediate hide is not a mouse leave. Retain the request
             -- until the next update; only Query with the same full identity can
             -- reattach it. A real leave retires the tooltip binding; only an
             -- open native inspection session may retain the slot's request.
-            self.arcanaAffixHiddenInspection = view
+            self.arcanaAffixHiddenView = view
         else
             CancelRequest(view)
-            self.arcanaAffixCache, self.arcanaAffixHiddenInspection = nil, nil
+            self.arcanaAffixCache, self.arcanaAffixHiddenView = nil, nil
         end
         self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot = nil, nil, nil
         RemoveLine(self)
@@ -664,9 +664,9 @@ events:SetScript("OnUpdate", function()
     local now = GetTime()
     PreloadInspection(now)
     local tooltip = GameTooltip
-    local hidden = tooltip.arcanaAffixHiddenInspection
+    local hidden = tooltip.arcanaAffixHiddenView
     if hidden then
-        tooltip.arcanaAffixHiddenInspection = nil
+        tooltip.arcanaAffixHiddenView = nil
         if tooltip.arcanaAffixCache == hidden then
             DetachRequest(hidden)
             tooltip.arcanaAffixCache = nil

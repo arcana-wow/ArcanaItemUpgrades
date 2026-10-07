@@ -323,3 +323,29 @@ Ascension confirmation shows the selected item, destination item level and exact
 Ascension token consumed. Recalibration confirmation shows the selected item and
 its current bonus stat and amount. This is an addon-only text update; the server
 protocol and payment validation are unchanged.
+
+### 1.12.1 — recycling review and bag affix fixes
+
+The Recycle tab shows ten item slots and four concise description bullets.
+Item names omit PvP/PvE tags; the status line, value breakdown and odds controls
+are removed. The return remains floor(50% of the total vendor value) and all
+server eligibility, category probabilities and reward rules remain unchanged.
+Failures use the normal game error area rather than a status row.
+
+Recycle opens an opaque confirmation containing the destruction warning, ten
+item names, a final question, and Recycle/Cancel buttons. Cancel and Escape keep
+the selected batch. Expired quotes renew automatically while this tab is open;
+renewal never commits or reopens confirmation. Inventory changes, restrictions,
+stale responses and duplicate clicks still fail closed, with durable STATUS
+recovery after an uncertain commit.
+
+Bag affixes retain a pending reply across a provider's SetOwner/hide/SetBagItem
+refresh. An actual leave retires the binding on the next update; different
+positions, links or inventory generations never share an affix result.
+
+Install alongside the updated client patch containing Arcana Salvage Satchel
+194800 with stock display 56915 (`INV_Misc_Bag_15`). No server rebuild is needed.
+Run every `tests/*_test.lua` with Lua 5.1 before packaging. Regression coverage
+includes cancellation/expiry/renewal, exact batch recovery, delayed/duplicate
+replies, restrictions, opaque modal input, and bag-provider refresh cycles.
+Actual game rendering and interaction still require a client check.
