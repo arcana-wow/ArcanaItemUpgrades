@@ -265,6 +265,46 @@ check(rendered("+2 Strength")==0,"expired reply is rejected")
 local retry=latestRequest(); check(retry~=id,"expired request can retry without a mouse move")
 reply(retry,10411,206,strength); check(rendered("+2 Strength")==1,"retry recovers display")
 
+-- Bagnon/native bags reset the owner during hovered-slot updates. Requests
+-- must survive that temporary hide but remain bound to the full slot identity.
+local bagOwner=CreateFrame("Button","RegressionBagItem")
+local function bagHover(slot,owner)
+    tooltip:SetOwner(owner or bagOwner);tooltip:SetBagItem(0,slot or 1)
+end
+tooltip:Hide();tick();event("BAG_UPDATE",0);tick(0.3)
+bagHover();id=latestRequest();before=#sent
+for i=1,30 do
+    bagHover();tick(1/60)
+    check(#sent==before,"bag owner resets keep one pending request "..i)
+    if i==8 then reply(id,10411,201,stamina) end
+    if i>=8 then check(rendered("+4 Stamina")==1,"bag affix survives owner reset "..i) end
+end
+check(tooltip.arcanaAffixCache.row.guid==201,"bag owner reset retains the exact instance")
+-- A real leave retires the binding; replies in the hidden interval never draw.
+tooltip:Hide();tick();bagHover();id=latestRequest()
+tooltip:Hide();reply(id,10411,201,stamina)
+check(not tooltip:IsShown(),"hidden bag reply never opens tooltip")
+tick();bagHover();check(latestRequest()~=id and rendered("+4 Stamina")==0,"actual bag leave discards hidden reply")
+id=latestRequest();bagHover(2);second=latestRequest();reply(id,10411,201,stamina)
+check(second~=id and rendered("+4 Stamina")==0,"same-link bag slot change rejects delayed reply")
+reply(second,10411,202,strength);check(rendered("+2 Strength")==1,"same-link replacement bag slot has its own affix")
+event("BAG_UPDATE",0);bagHover(2);id=latestRequest()
+tooltip:SetOwner(bagOwner);event("BAG_UPDATE",0);tooltip:SetBagItem(0,2)
+reply(id,10411,202,strength);check(rendered("+2 Strength")==0,"bag mutation between hide and rebuild rejects old reply")
+id=latestRequest();reply(id,10411,203,stamina);check(rendered("+4 Stamina")==1,"new bag generation resolves normally")
+-- An unrelated same-link tooltip is never enough to reattach a bag request.
+event("BAG_UPDATE",0);bagHover();id=latestRequest()
+tooltip:SetOwner(CreateFrame("Button","BagUnrelatedLink"));rebuild(boots)
+reply(id,10411,201,stamina);tick()
+check(rendered("+4 Stamina")==0 and tooltip.arcanaAffixCache==nil,"unrelated same-link view cannot borrow bag result")
+-- Timeouts and zero-affix replies retain their existing bounded retry behavior.
+bagHover();id=latestRequest();tick(6);local retryBag=latestRequest()
+check(retryBag~=id,"bag owner-reset request can retry after timeout")
+reply(id,10411,201,stamina);check(rendered("+4 Stamina")==0,"expired bag reply stays rejected")
+reply(retryBag,10411,201,0);check(not tooltip.arcanaAffixLine,"no-affix bag reply removes placeholder")
+before=#sent;for i=1,10 do bagHover();tick(1/60) end
+check(#sent==before and not tooltip.arcanaAffixLine,"zero-affix bag reply survives owner resets without polling")
+
 -- Reroll while already hovered refreshes from the new authoritative sync.
 sync(); tooltip:SetInventoryItem("player",8)
 receive("RESULT\tRecalibrated"); sync(stamina,2)

@@ -1,17 +1,25 @@
 local frames,named,sent,hooks={},{},{},{}
 local now,level,dead,combat,inside,casting,channeling=1,80,false,false,false,false,false
-local cursor,popup
+local cursor
 local methods={}
 function methods:SetScript(event,fn) self.scripts[event]=fn end
 function methods:HookScript(event,fn)
     local old=self.scripts[event];self.scripts[event]=function(...) if old then old(...) end;fn(...) end
 end
 function methods:Show() self.shown=true end
-function methods:Hide() self.shown=false end
+function methods:Hide() self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
 function methods:IsShown() return self.shown~=false end
 function methods:Enable() self.enabled=true end
 function methods:Disable() self.enabled=false end
 function methods:SetText(text) self.text=text end
+function methods:SetTexture(...) self.texture={...} end
+function methods:SetAlpha(alpha) self.alpha=alpha end
+function methods:SetSize(width,height) self.width,self.height=width,height end
+function methods:SetHeight(height) self.height=height end
+function methods:SetAllPoints(target) self.allPoints=target or true end
+function methods:EnableMouse(value) self.mouse=value end
+function methods:EnableKeyboard(value) self.keyboard=value end
+function methods:GetStringHeight() local _,lines=(self.text or ""):gsub("\n","");return (lines+1)*14 end
 function methods:CreateFontString() return CreateFrame("Font",nil,self) end
 function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
 function CreateFrame(kind,name,parent)
@@ -20,12 +28,12 @@ function CreateFrame(kind,name,parent)
     end})
     frames[#frames+1]=frame;if name then named[name]=frame end;return frame
 end
+UIParent=CreateFrame("Frame")
 ArcanaItemUpgradesFrame=CreateFrame("Frame")
 local host=ArcanaItemUpgradesFrame;host.serviceTab="Recycle";host.ServiceStatus=CreateFrame("Font")
 GameTooltip=CreateFrame("Tooltip")
 StaticPopupDialogs={};CANCEL="Cancel"
-function StaticPopup_Hide() popup=nil end
-function StaticPopup_Show(kind,a,b,data) popup={kind=kind,data=data,text=string.format(StaticPopupDialogs[kind].text,a,b)} end
+UIErrorsFrame={messages={},AddMessage=function(self,text) self.messages[#self.messages+1]=text end}
 function SendAddonMessage(prefix,message,channel,target) assert(prefix=="ARCY" and channel=="WHISPER" and target=="Tester");sent[#sent+1]=message end
 function UnitName() return "Tester" end
 function UnitLevel() return level end
@@ -49,6 +57,9 @@ dofile("RecyclingProtocol.lua");dofile("RecyclingUI.lua")
 local P=ArcanaRecyclingProtocol
 local events=named.ArcanaRecyclingEvents
 local button=named.ArcanaRecycleButton
+local confirmation=named.ArcanaRecyclingConfirmation
+local accept=named.ArcanaRecycleConfirmAccept
+local cancel=named.ArcanaRecycleConfirmCancel
 local checks=0
 local function check(value) checks=checks+1;assert(value,"check "..checks) end
 local function event(name,...) events.scripts.OnEvent(events,name,...) end
@@ -103,15 +114,38 @@ quote(tostring(tonumber(old)+1));check(not button.enabled) -- Out-of-order reply
 receive("QUOTE\t"..old.."\t"..id.."\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2\t0","Spoofer")
 check(not button.enabled)
 quote();check(button.enabled)
-button.scripts.OnClick();check(popup and popup.text:find("0g 10s 10c",1,true) and popup.text:find("0g 5s 5c",1,true))
+button.scripts.OnClick();check(confirmation:IsShown() and confirmation.quoteId==id)
+check(not host.ServiceStatus:IsShown() and host.ServiceStatus.text=="")
+local title,question,list,solid,description
+for _,f in ipairs(frames) do
+    if f.parent==named.ArcanaRecycleConfirmDialog then
+        if f.text=="These 10 items will be permanently destroyed." then title=true end
+        if f.text=="Are you sure you want to proceed?" then question=true end
+        if f.text==table.concat({"item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123"},"\n") then list=true end
+        if f.kind=="Texture" and f.texture and f.texture[4]==1 and f.allPoints then solid=true end
+    elseif f.parent==named.ArcanaRecyclingPanel and f.kind=="Font" then
+        if f.text:find("• The item you receive",1,true) then description=f.text
+        else check(f.text=="Drag gear into an empty slot, or click a slot to choose an item.") end
+    end
+end
+check(title and question and list and solid and confirmation.mouse and named.ArcanaRecycleConfirmDialog.alpha==1)
+check(description and description:find("return you 50% of the total vendor value of all items.",1,true))
+for i=1,10 do check(named["ArcanaRecycleSlot"..i].label.text=="Item 123") end
+-- Cancel and Escape are purely local: keep the ten items and the usable quote.
+local cancelCount=#sent
+cancel.scripts.OnClick();check(not confirmation:IsShown() and button.enabled and #sent==cancelCount)
+button.scripts.OnClick();check(confirmation:IsShown())
+check(confirmation.keyboard)
+confirmation.scripts.OnKeyDown(confirmation,"ENTER");check(confirmation:IsShown() and #sent==cancelCount)
+confirmation.scripts.OnKeyDown(confirmation,"ESCAPE");check(not confirmation:IsShown() and host:IsShown() and button.enabled and #sent==cancelCount)
+button.scripts.OnClick()
 -- A replacement with identical entry/value invalidates both popup and old request.
-click(10,"RightButton");check(not popup and not button.enabled);choose(10,11);tick()
+click(10,"RightButton");check(not confirmation:IsShown() and not button.enabled);choose(10,11);tick()
 old=request()[2];click(10,"RightButton");choose(10,10)
 quote(old);check(not button.enabled);tick();quote();check(button.enabled)
-button.scripts.OnClick();local data=popup.data
-StaticPopupDialogs.ARCANA_RECYCLE_CONFIRM.OnAccept({},data)
+button.scripts.OnClick();accept.scripts.OnClick()
 check(request()[1]=="COMMIT" and ArcanaItemUpgradesDB.recyclingPending==id and not button.enabled)
-local count=#sent;StaticPopupDialogs.ARCANA_RECYCLE_CONFIRM.OnAccept({},data);check(#sent==count)
+local count=#sent;accept.scripts.OnClick();check(#sent==count)
 event("BAG_UPDATE");tick(6);tick(2);check(request()[1]=="STATUS")
 local r=request();receive("RESULT\t"..r[2].."\t"..id.."\t1000\t0")
 check(not ArcanaItemUpgradesDB.recyclingPending);tick(2);snapshot()
@@ -136,6 +170,45 @@ tick();host:RefreshRecycling();tick(6);check(not button.enabled)
 host.serviceTab="Tempering";host:RecyclingTabChanged("Tempering");check(not named.ArcanaRecyclingPanel:IsShown())
 host.serviceTab="Recycle";tick();host:RecyclingTabChanged("Recycle");snapshot()
 for i=1,10 do if i==1 then click(1,"RightButton") end;choose(i,i) end
-tick();quote();button.scripts.OnClick();check(popup~=nil)
-tick(31);check(not button.enabled and not popup)
+tick();quote();button.scripts.OnClick();check(confirmation:IsShown())
+tick(31);check(not button.enabled and not confirmation:IsShown())
+local expiryCount=#sent
+accept.scripts.OnClick();check(#sent==expiryCount) -- Expired confirmation cannot commit.
+tick();check(request()[1]=="QUOTE2");quote();check(button.enabled and not confirmation:IsShown())
+check(request()[3]=="1,2,3,4,5,6,7,8,9,10")
+-- Repeated renewal stays bounded, retains selection and never auto-confirms.
+for i=1,3 do
+    local countBefore=#sent
+    button.scripts.OnClick();cancel.scripts.OnClick();tick(31);tick()
+    check(#sent==countBefore+1 and request()[1]=="QUOTE2")
+    quote();check(button.enabled and not confirmation:IsShown())
+end
+-- Cancel on the expiry boundary before the next update also schedules renewal.
+button.scripts.OnClick();now=now+31;cancel.scripts.OnClick()
+check(not button.enabled);tick();quote();check(button.enabled)
+-- Delayed renewal after a bag mutation must not revive a stale selection.
+tick(31);tick();local staleRenewal=request()[2]
+event("BAG_UPDATE");quote(staleRenewal);check(not button.enabled)
+tick();snapshot();tick();quote();check(button.enabled)
+-- Safety can change while the dialog is open, before its event arrives.
+for _,restriction in ipairs({"level","dead","combat","inside","casting","channeling"}) do
+    button.scripts.OnClick();check(confirmation:IsShown())
+    level=restriction=="level" and 79 or 80;dead=restriction=="dead";combat=restriction=="combat";inside=restriction=="inside"
+    casting=restriction=="casting";channeling=restriction=="channeling"
+    local countBefore=#sent;accept.scripts.OnClick();check(#sent==countBefore and not ArcanaItemUpgradesDB.recyclingPending)
+    level=80;dead=false;combat=false;inside=false;casting=false;channeling=false
+    cancel.scripts.OnClick()
+end
+-- Closing/switching tabs never commits or renews in the background.
+button.scripts.OnClick();host.serviceTab="Affixes";host:RecyclingTabChanged("Affixes")
+check(not confirmation:IsShown() and host.ServiceStatus:IsShown())
+local closedCount=#sent;accept.scripts.OnClick();tick(60);check(#sent==closedCount)
+host.serviceTab="Recycle";host:RecyclingTabChanged("Recycle");snapshot();tick();quote();button.scripts.OnClick()
+host:Hide();check(not confirmation:IsShown());closedCount=#sent;tick(60);check(#sent==closedCount)
+host:Show();host.scripts.OnShow(host);snapshot();tick();quote();button.scripts.OnClick()
+-- Duplicate acknowledgement cannot cause another commit or create a new batch.
+accept.scripts.OnClick();local committed=request();receive("RESULT\t"..committed[2].."\t"..id.."\t1000\t0")
+local completedCount=#sent;receive("RESULT\t"..committed[2].."\t"..id.."\t1000\t0")
+accept.scripts.OnClick();check(#sent==completedCount and not ArcanaItemUpgradesDB.recyclingPending)
+check(not host.ServiceStatus:IsShown() and host.ServiceStatus.text=="")
 print("PASS: "..checks.." recycling drag/picker, duplicate identity, stale quotes, retry/reload and restriction checks")
