@@ -4,28 +4,53 @@ local checks=0
 local function check(value) checks=checks+1;assert(value,"check "..checks) end
 local rows,selected={},{}
 for i=1,10 do
-    rows[i]=P.Row(P.Split("ITEM\t1\t"..i.."\t0\t"..i.."\t123\t187\t101"))
+    rows[i]=P.Row(P.Split("ITEM\t1\t"..i.."\t0\t"..i.."\t123\t187\t101\t0"))
     check(rows[i] and P.Add(selected,rows,i,i))
 end
 check(P.Selection(selected,rows)=="1,2,3,4,5,6,7,8,9,10")
 check(not P.Add(selected,rows,1,1));selected[10]=nil
 check(not P.Add(selected,rows,10,1));check(not P.Selection(selected,rows))
 check(P.Add(selected,rows,10,10))
-local quote="QUOTE\t1\t0123456789abcdef0123456789abcdef\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2"
+local quote="QUOTE\t1\t0123456789abcdef0123456789abcdef\t30\t1010\t505\t505\t1870\t0.2\t0.2\t0.2\t0.2\t0.2\t0"
 check(P.Quote(P.Split(quote),selected,rows,5).expires==35)
 for _,bad in ipairs({"", "-1", "1x", "nan", "1e2", "4294967296"}) do
     check(not P.Integer(bad,4294967295))
 end
-for index=1,13 do
+for index=1,14 do
     local fields=P.Split(quote);fields[index]="invalid"
     check(not P.Quote(fields,selected,rows,0))
 end
-for index=1,8 do
-    local fields=P.Split("ITEM\t1\t1\t0\t1\t123\t187\t0");fields[index]="invalid"
+for index=1,9 do
+    local fields=P.Split("ITEM\t1\t1\t0\t1\t123\t187\t0\t0");fields[index]="invalid"
     check(not P.Row(fields))
 end
-for _,bad in ipairs({"ITEM\t1\t1\t0\t17\t123\t187\t0","ITEM\t1\t1\t5\t1\t123\t187\t0",
-    "ITEM\t1\t1\t0\t1\t123\t186\t0","ITEM\t1\t0\t0\t1\t123\t187\t0"}) do check(not P.Row(P.Split(bad))) end
+for _,bad in ipairs({"ITEM\t1\t1\t0\t17\t123\t187\t0\t0","ITEM\t1\t1\t5\t1\t123\t187\t0\t0",
+    "ITEM\t1\t1\t0\t1\t123\t186\t0\t0","ITEM\t1\t0\t0\t1\t123\t187\t0\t0"}) do check(not P.Row(P.Split(bad))) end
+local function gear(q,category,part)
+    local values=part==0 and "1.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000" or "0.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000\t0.00000000000000000"
+    return P.Split("GEAR\t1\t"..q.id.."\t"..category.."\t"..part.."\t"..values)
+end
+local function ending(q) return P.Split("QEND\t1\t"..q.id) end
+for missing=0,3 do
+    local q=P.Quote(P.Split(quote),selected,rows,0)
+    for category=0,1 do for part=0,1 do if category*2+part~=missing then check(P.Gear(q,gear(q,category,part))) end end end
+    check(not P.Complete(q,ending(q),1))
+end
+local q=P.Quote(P.Split(quote),selected,rows,0)
+for category=1,0,-1 do for part=1,0,-1 do check(P.Gear(q,gear(q,category,part))) end end
+check(P.Complete(q,ending(q),1)==q);check(not P.Complete(q,ending(q),30))
+check(not P.Gear(q,gear(q,0,0)))
+for field=1,11 do
+    q=P.Quote(P.Split(quote),selected,rows,0)
+    local f=gear(q,0,0);f[field]="invalid";check(not P.Gear(q,f))
+end
+for _,bad in ipairs({"nan","inf","-0.1","1.00000000000000001","0.1e2","2.0"}) do
+    q=P.Quote(P.Split(quote),selected,rows,0);local f=gear(q,0,0);f[6]=bad
+    if bad~="1.00000000000000001" then check(not P.Gear(q,f)) end
+end
+q=P.Quote(P.Split(quote),selected,rows,0)
+for category=0,1 do for part=0,1 do check(P.Gear(q,gear(q,category,part))) end end
+q.gear[1][3]=0.1;check(not P.Complete(q,ending(q),1))
 for copper=0,10001 do
     for i=1,10 do rows[i].price=0 end
     rows[1].price=copper
