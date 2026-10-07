@@ -12,6 +12,8 @@ function methods:IsShown() return self.shown~=false end
 function methods:Enable() self.enabled=true end
 function methods:Disable() self.enabled=false end
 function methods:SetText(text) self.text=text end
+function methods:SetPoint(...) self.point={...} end
+function methods:SetWidth(width) self.width=width end
 function methods:SetTexture(...) self.texture={...} end
 function methods:SetAlpha(alpha) self.alpha=alpha end
 function methods:SetSize(width,height) self.width,self.height=width,height end
@@ -20,7 +22,7 @@ function methods:SetAllPoints(target) self.allPoints=target or true end
 function methods:EnableMouse(value) self.mouse=value end
 function methods:EnableKeyboard(value) self.keyboard=value end
 function methods:GetStringHeight() local _,lines=(self.text or ""):gsub("\n","");return (lines+1)*14 end
-function methods:CreateFontString() return CreateFrame("Font",nil,self) end
+function methods:CreateFontString(_,_,font) local f=CreateFrame("Font",nil,self);f.font=font;return f end
 function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
 function CreateFrame(kind,name,parent)
     local frame=setmetatable({scripts={},name=name,parent=parent,kind=kind},{__index=function(_,key)
@@ -124,7 +126,8 @@ for _,f in ipairs(frames) do
         if f.text==table.concat({"item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123","item:123"},"\n") then list=true end
         if f.kind=="Texture" and f.texture and f.texture[4]==1 and f.allPoints then solid=true end
     elseif f.parent==named.ArcanaRecyclingPanel and f.kind=="Font" then
-        if f.text:find("• The item you receive",1,true) then description=f.text
+        if f.text:find("• The item you receive",1,true) then description=f.text;check(f.font=="GameFontHighlightSmall" and f.point[3]==-229)
+        elseif f.text:find("Average ilvl:",1,true) then check(f.text=="Average ilvl: 187.0" and f.point[3]==-204)
         else check(f.text=="Drag gear into an empty slot, or click a slot to choose an item.") end
     end
 end

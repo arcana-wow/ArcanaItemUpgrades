@@ -349,3 +349,19 @@ Run every `tests/*_test.lua` with Lua 5.1 before packaging. Regression coverage
 includes cancellation/expiry/renewal, exact batch recovery, delayed/duplicate
 replies, restrictions, opaque modal input, and bag-provider refresh cycles.
 Actual game rendering and interaction still require a client check.
+
+### 1.12.2 — average level and native bag tooltip completion
+
+The Recycle tab again shows the selected items' average ilvl above smaller
+bullet text. The average resets while inventory is invalid and after completion.
+
+Bag affixes resolve an exact position when a snapshot has no row, instead of
+treating a missing row as a permanent no-affix decision. A snapshot spanning a
+bag mutation is not considered fresh. Native item-data tooltip rebuilds restore
+the already verified affix on the next update, only while owner, live position,
+full link and inventory generation still match. Hyperlinks, other tooltip
+contexts and genuine leaves discard this retained binding. No item bonus is
+changed or rolled by these display fixes.
+
+The accompanying Test data migration shortens item 194800's description to
+"Contains your recycling proceeds." The existing satchel icon MPQ is retained.
