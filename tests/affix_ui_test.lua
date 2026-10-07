@@ -109,6 +109,9 @@ local function rebuild(link)
 end
 function tooltip:SetInventoryItem(unit, slot) rebuild(GetInventoryItemLink(unit,slot)) end
 local bagLink=boots
+function GetContainerItemLink() return bagLink end
+function tooltip:SetHyperlink(link) rebuild(link) end
+function tooltip:SetText(text) rebuild(nil) end
 function tooltip:SetBagItem(bag,slot) rebuild(bagLink) end
 for _, method in ipairs({"SetTradePlayerItem","SetTradeTargetItem","SetBuybackItem",
     "SetLootRollItem","SetInboxItem"}) do
@@ -210,7 +213,9 @@ check(rendered("+4 Stamina")==1,"synchronized bag bonus renders on first hover")
 check(#sent==before,"synchronized bag bonus needs no hover round trip")
 tooltip:SetBagItem(0,2)
 check(rendered("+4 Stamina")==0,"synchronized empty bag slot has no borrowed bonus")
-check(#sent==before,"complete bag sync also caches absence")
+check(#sent==before+1,"missing snapshot row resolves the current bag instance explicitly")
+reply(latestRequest(),10411,202,0)
+check(not tooltip.arcanaAffixLine,"confirmed absence removes the reserved line")
 event("BAG_UPDATE",0)
 check(rendered("+4 Stamina")==0,"bag mutation removes the synchronized value")
 
@@ -304,6 +309,36 @@ reply(id,10411,201,stamina);check(rendered("+4 Stamina")==0,"expired bag reply s
 reply(retryBag,10411,201,0);check(not tooltip.arcanaAffixLine,"no-affix bag reply removes placeholder")
 before=#sent;for i=1,10 do bagHover();tick(1/60) end
 check(#sent==before and not tooltip.arcanaAffixLine,"zero-affix bag reply survives owner resets without polling")
+
+-- A late/incomplete snapshot must not cancel an already pending exact-bag
+-- query or freeze its invisible reserved row forever.
+tooltip:Hide();tick();event("BAG_UPDATE",0);tick(0.3)
+bagHover();id=latestRequest()
+receive("SYNC");receive("DONE")
+reply(id,10411,201,stamina)
+check(rendered("+4 Stamina")==1,"late snapshot absence cannot suppress an exact bag reply")
+-- Native item-data completion may rebuild the tooltip without another Lua
+-- SetBagItem call. Restore the verified binding once, preserving native text.
+before=#sent;rebuild(boots)
+check(rendered("+4 Stamina")==0,"native item-data rebuild clears the rendered affix")
+tick()
+check(rendered("+4 Stamina")==1 and #sent==before,"deferred bag rebuild restores the affix without another query")
+check(GameTooltipTextLeft7:GetText()=="|cff00ff00+4 Stamina|r\n+5 Stamina","deferred restoration keeps enchant ordering")
+for i=1,20 do rebuild(boots);tick();check(rendered("+4 Stamina")==1,"repeated asynchronous bag rebuild "..i) end
+check(#sent==before,"asynchronous redraw is not network polling")
+-- Only the same owner and exact live bag position may recover a redraw.
+rebuild(boots);tooltip.owner=CreateFrame("Button","UnrelatedSameLinkOwner");tick()
+check(rendered("+4 Stamina")==0,"same-link different owner cannot inherit retained bag affix")
+bagHover();rebuild(boots);bagLink=relic;tick()
+check(rendered("+4 Stamina")==0,"changed live bag position prevents deferred restoration")
+bagLink=boots;bagHover();tooltip:SetHyperlink(boots);tick()
+check(rendered("+4 Stamina")==0,"same-owner hyperlink tooltip cannot inherit bag affix")
+-- Responses from a snapshot begun before a bag mutation are not authoritative.
+event("BAG_UPDATE",0);tick(0.3);receive("SYNC");event("BAG_UPDATE",0)
+receive("B\t0\t1\t10411\t200\t"..stamina.."\t1");receive("DONE")
+bagHover();check(rendered("+4 Stamina")==0,"inventory mutation rejects old snapshot even for an identical link")
+id=latestRequest();reply(id,10411,201,strength)
+check(rendered("+2 Strength")==1,"exact query resolves the new instance after stale snapshot")
 
 -- Reroll while already hovered refreshes from the new authoritative sync.
 sync(); tooltip:SetInventoryItem("player",8)

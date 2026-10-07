@@ -46,7 +46,7 @@ end
 -- A tooltip rebuild clears its font strings even when the hovered item has not
 -- changed. Keep the resolved instance separate from the currently drawn line.
 local epochs = { B=0, E=0, T=0, Y=0, I=0 }
-local equipmentFresh, bagsFresh = false, false
+local equipmentFresh, bagsFresh, bagSyncEpoch = false, false, nil
 local refreshTooltip = false
 local function CurrentLink(tooltip)
     local _, link = tooltip:GetItem()
@@ -286,6 +286,7 @@ local function Query(tooltip, context, first, second)
             key=key, link=link, entry=entry }
         tooltip.arcanaAffixCache = view
     end
+    view.owner, view.epoch = tooltip:GetOwner(), epochs[context]
     tooltip.arcanaAffixView = view
     tooltip.arcanaAffixHiddenView = nil
     if context == "E" and equipmentFresh and first <= 19 then
@@ -296,9 +297,6 @@ local function Query(tooltip, context, first, second)
         local row = state.bags[P.BagKey(first, second) or ""]
         if P.Matches(row, link) then
             view.row, view.known = row, true
-            CancelRequest(view)
-        elseif not row then
-            view.known = true
             CancelRequest(view)
         end
     end
@@ -328,9 +326,27 @@ local function Invalidate(context)
         end
     end
 end
+-- Native cache completion can clear/rebuild item text without repeating the
+-- Lua SetBagItem call. Retain only a positively bound, still-current bag view.
+local function CurrentBagView(tooltip)
+    local view = tooltip.arcanaAffixBag
+    if view and tooltip:IsShown() and tooltip.arcanaAffixCache == view and
+        view.epoch == epochs.B and tooltip:GetOwner() == view.owner and
+        CurrentLink(tooltip) == view.link and
+        GetContainerItemLink(view.first, view.second) == view.link then return view end
+end
+local function ClearBagView(tooltip)
+    local view = tooltip.arcanaAffixBag
+    tooltip.arcanaAffixBag = nil
+    if view and tooltip.arcanaAffixCache == view then
+        CancelRequest(view); tooltip.arcanaAffixCache = nil
+        if tooltip.arcanaAffixView == view then tooltip.arcanaAffixView = nil end
+        RemoveLine(tooltip)
+    end
+end
 local function RefreshTooltip()
     local tooltip = GameTooltip
-    local view = tooltip.arcanaAffixView
+    local view = tooltip.arcanaAffixView or CurrentBagView(tooltip)
     if view and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
         Query(tooltip, view.context, view.first, view.second)
     end
@@ -478,6 +494,7 @@ local function HookTooltip(tooltip)
     end)
     tooltip:HookScript("OnTooltipSetItem", function(self)
         if CurrentLootView(self) then refreshLootTooltip = true end
+        if CurrentBagView(self) then refreshTooltip = true end
     end)
     tooltip:HookScript("OnHide", function(self)
         local view = self.arcanaAffixCache
@@ -492,28 +509,35 @@ local function HookTooltip(tooltip)
             CancelRequest(view)
             self.arcanaAffixCache, self.arcanaAffixHiddenView = nil, nil
         end
-        self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot = nil, nil, nil
+        self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot, self.arcanaAffixBag = nil, nil, nil, nil
         RemoveLine(self)
     end)
-    hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot) ClearLootView(self); Query(self, "B", bag, slot) end)
+    hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot)
+        ClearLootView(self); Query(self, "B", bag, slot)
+        self.arcanaAffixBag = self.arcanaAffixView
+    end)
+    hooksecurefunc(tooltip, "SetHyperlink", ClearBagView)
+    hooksecurefunc(tooltip, "SetText", ClearBagView)
+    tooltip:HookScript("OnTooltipSetSpell", ClearBagView)
+    tooltip:HookScript("OnTooltipSetUnit", ClearBagView)
     hooksecurefunc(tooltip, "SetInventoryItem", function(self, unit, slot)
-        ClearLootView(self)
+        ClearBagView(self); ClearLootView(self)
         if UnitIsUnit(unit, "player") then Query(self, "E", slot, 0)
         elseif UnitGUID(unit) then Query(self, "I", slot, UnitGUID(unit)) end
     end)
-    hooksecurefunc(tooltip, "SetTradePlayerItem", function(self, slot) ClearLootView(self); Query(self, "T", 0, slot) end)
-    hooksecurefunc(tooltip, "SetTradeTargetItem", function(self, slot) ClearLootView(self); Query(self, "T", 1, slot) end)
-    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot) ClearLootView(self); Query(self, "Y", slot, 0) end)
-    hooksecurefunc(tooltip, "SetLootItem", function(self, slot) SnapshotTooltip(self, 0, slot) end)
+    hooksecurefunc(tooltip, "SetTradePlayerItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "T", 0, slot) end)
+    hooksecurefunc(tooltip, "SetTradeTargetItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "T", 1, slot) end)
+    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "Y", slot, 0) end)
+    hooksecurefunc(tooltip, "SetLootItem", function(self, slot) ClearBagView(self); SnapshotTooltip(self, 0, slot) end)
     hooksecurefunc(tooltip, "SetLootRollItem", function(self, roll)
-        ClearLootView(self)
+        ClearBagView(self); ClearLootView(self)
         if P.Matches(rolls[roll], CurrentLink(self)) then AddLine(self, rolls[roll]) end
     end)
     hooksecurefunc(tooltip, "SetInboxItem", function(self, mail, attachment)
-        SnapshotTooltip(self, 5, mail * 16 + (attachment or 1))
+        ClearBagView(self); SnapshotTooltip(self, 5, mail * 16 + (attachment or 1))
     end)
     hooksecurefunc(tooltip, "SetAuctionItem", function(self, kind, index)
-        ClearLootView(self)
+        ClearBagView(self); ClearLootView(self)
         AuctionTooltip(self, kind, index)
     end)
 end
@@ -527,7 +551,7 @@ for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_
     "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE", "UNIT_INVENTORY_CHANGED",
     "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED", "ADDON_LOADED",
     "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRADE_SHOW", "TRADE_CLOSED",
-    "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED", "PLAYER_ENTERING_WORLD"}) do events:RegisterEvent(event) end
+    "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED", "PLAYER_ENTERING_WORLD", "GET_ITEM_INFO_RECEIVED"}) do events:RegisterEvent(event) end
 local invalidations = {
     BAG_UPDATE={"B", "E", "Y"}, PLAYER_EQUIPMENT_CHANGED={"E", "B"},
     PLAYERBANKSLOTS_CHANGED={"B", "E"}, PLAYERBANKBAGSLOTS_CHANGED={"B", "E"},
@@ -583,8 +607,10 @@ events:SetScript("OnEvent", function(self, event, ...)
             end
         elseif f[1] == "SYNC" then
             Invalidate("E")
+            bagSyncEpoch, bagsFresh = epochs.B, false
         elseif f[1] == "DONE" then
-            equipmentFresh, bagsFresh, ready = true, true, true
+            equipmentFresh, bagsFresh, ready = true, bagSyncEpoch == epochs.B, true
+            bagSyncEpoch = nil
             frame:SetAffixSlots(state.slots); RefreshControls(); RefreshTooltip()
         elseif f[1] == "RESULT" then
             paying = false
@@ -617,6 +643,8 @@ events:SetScript("OnEvent", function(self, event, ...)
         if completedContext ~= nil and snapshotWaiting[completedContext] then
             PublishSnapshot(completedContext)
         end
+    elseif event == "GET_ITEM_INFO_RECEIVED" then
+        if CurrentBagView(GameTooltip) then refreshTooltip = true end
     elseif contextEvents[event] ~= nil then
         local context = contextEvents[event]
         if context == 0 then

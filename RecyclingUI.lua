@@ -14,12 +14,13 @@ local function Label(parent,text,x,y,width,font)
     return label
 end
 local instruction=Label(panel,"Drag gear into an empty slot, or click a slot to choose an item.",8,-2,544,"GameFontHighlightSmall")
+local average=Label(panel,"Average ilvl: --",8,-204,544,"GameFontHighlight")
 local description=Label(panel,table.concat({
     "• The item you receive will most likely be close to the average ilvl, sometimes higher or lower.",
     "• More PvP gear means better PvP odds. More PvE gear means better PvE odds.",
     "• Bonus items are also possible.",
     "• Recycling will also return you 50% of the total vendor value of all items.",
-},"\n\n"),8,-206,544,"GameFontHighlight")
+},"\n\n"),8,-229,544,"GameFontHighlightSmall")
 local recycle=CreateFrame("Button","ArcanaRecycleButton",panel,"UIPanelButtonTemplate")
 recycle:SetPoint("BOTTOM",0,2);recycle:SetSize(175,28);recycle:SetText("Recycle");recycle:Disable()
 -- A separate opaque dialog and mouse shield prevent the underlying addon
@@ -175,6 +176,8 @@ OpenPicker=function(index)
     scroll.offset=0;RenderPicker();picker:Show()
 end
 Render=function()
+    local totals=valid and P.Totals(selected,rows)
+    average:SetText("Average ilvl: "..(totals and totals.count>0 and string.format("%.1f",totals.levels/totals.count) or "--"))
     for index,button in ipairs(buttons) do
         local row=rows[selected[index]]
         button.icon:SetTexture(row and GetItemIcon(row.entry) or "Interface\\Buttons\\UI-PlusButton-Up")
