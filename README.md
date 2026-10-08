@@ -367,6 +367,17 @@ The accompanying Test data migration shortens item 194800's description to
 "Contains your recycling proceeds." The existing satchel icon MPQ is retained.
 
 
+### Recycling restriction messages (1.13.1)
+
+Clicking an empty recycling slot reports the actual restriction: level 80,
+being alive and out of combat, finishing a cast, or leaving an instance.
+Other server restrictions, including an open trade window or temporary service
+unavailability, keep their original message across repeated clicks. Refresh
+is requested only when the inventory snapshot is unavailable. Reaching level
+80 refreshes eligibility automatically. All recycling eligibility and commit
+checks remain enforced. This addon-only update requires no server build,
+restart, client MPQ replacement or item-cache reset.
+
 ### Recycling picker (1.13.0)
 
 The item picker shows only names and ilvls, stays open while filling the next

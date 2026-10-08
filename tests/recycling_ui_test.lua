@@ -108,7 +108,62 @@ local function quote(requestId)
     end end
     receive("QEND\t"..(requestId or r[2]).."\t"..id)
 end
-host:RecyclingTabChanged("Recycle");snapshot()
+-- Specific restrictions take precedence even before the first server response.
+level=60;host:RecyclingTabChanged("Recycle")
+local requestsBefore=#sent
+click(1)
+check(UIErrorsFrame.messages[#UIErrorsFrame.messages]=="Recycling requires level 80.")
+check(not named.ArcanaRecyclingPicker:IsShown() and not button.enabled and #sent==requestsBefore)
+local function deniedSnapshot(message)
+    tick(2);host:RefreshRecycling()
+    local r=request();check(r[1]=="SYNC")
+    receive("BEGIN\t"..r[2].."\t2\t0\t"..message)
+    receive("END\t"..r[2])
+end
+for _,case in ipairs({
+    {level=60,message="Recycling requires level 80."},
+    {level=79,message="Recycling requires level 80."},
+    {dead=true,message="You must be alive and out of combat."},
+    {combat=true,message="You must be alive and out of combat."},
+    {casting=true,message="Finish your current cast before recycling."},
+    {channeling=true,message="Finish your current cast before recycling."},
+    {inside=true,message="Leave the instance before recycling."},
+    {message="Close the trade window before recycling."},
+    {message="Recycling is temporarily unavailable."},
+    {message="Recycling is unavailable during login or teleportation."},
+}) do
+    level=case.level or 80;dead=case.dead or false;combat=case.combat or false
+    inside=case.inside or false;casting=case.casting or false;channeling=case.channeling or false
+    deniedSnapshot(case.message)
+    local before=#sent
+    for i=1,3 do
+        click(1)
+        check(UIErrorsFrame.messages[#UIErrorsFrame.messages]==case.message)
+        check(not named.ArcanaRecyclingPicker:IsShown() and not button.enabled and #sent==before)
+    end
+end
+-- A missing reason has a safe fallback; invalid inventory never reuses a stale denial.
+deniedSnapshot("");click(1)
+check(UIErrorsFrame.messages[#UIErrorsFrame.messages]=="Recycling is temporarily unavailable.")
+deniedSnapshot("Close the trade window before recycling.")
+event("BAG_UPDATE");click(1)
+check(UIErrorsFrame.messages[#UIErrorsFrame.messages]=="Refresh your inventory before choosing items.")
+check(not named.ArcanaRecyclingPicker:IsShown() and not button.enabled)
+-- The player's current state wins over a previously ready server snapshot.
+tick(2);snapshot();level=60;click(1)
+check(UIErrorsFrame.messages[#UIErrorsFrame.messages]=="Recycling requires level 80.")
+check(not named.ArcanaRecyclingPicker:IsShown() and not button.enabled)
+deniedSnapshot("Recycling requires level 80.")
+level=80;event("PLAYER_LEVEL_UP",80);tick(2);snapshot()
+local messagesBefore=#UIErrorsFrame.messages
+click(1);check(named.ArcanaRecyclingPicker:IsShown() and #UIErrorsFrame.messages==messagesBefore)
+named.ArcanaRecyclingPicker:Hide()
+-- Casting after a ready response still reports its immediate local restriction.
+casting=true;click(1)
+check(UIErrorsFrame.messages[#UIErrorsFrame.messages]=="Finish your current cast before recycling.")
+check(not named.ArcanaRecyclingPicker:IsShown() and not button.enabled)
+casting=false
+tick(2);host:RecyclingTabChanged("Recycle");snapshot()
 check(not button.enabled)
 -- Picker preserves instance identity for duplicate entries and omits selected ones.
 choose(1,1);click(2)

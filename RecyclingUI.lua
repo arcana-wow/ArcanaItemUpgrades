@@ -2,6 +2,7 @@ local host,P=ArcanaItemUpgradesFrame,ArcanaRecyclingProtocol
 if not host or not P then return end
 local rows,selected,positions={},{},{}
 local valid,ready,reason=false,false,"Waiting for the realm..."
+local serverRestriction
 local serial,generation,lastRequest=0,0,-1
 local pending,quote,operation,drag,refreshAt,quoteAt
 local buttons,pickerRows={},{}
@@ -73,10 +74,13 @@ local autofill=CreateFrame("Button","ArcanaRecycleAutofill",picker,"UIPanelButto
 autofill:SetPoint("BOTTOMRIGHT",-18,14);autofill:SetSize(180,24);autofill:SetText("Autofill highest ilvl")
 local pickerIndex,pickerItems=nil,{}
 local function Active() return host:IsShown() and host.serviceTab=="Recycle" end
-local function LocalAllowed()
-    return UnitLevel("player")==80 and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and
-        not IsInInstance() and not UnitCastingInfo("player") and not UnitChannelInfo("player")
+local function LocalRestriction()
+    if UnitLevel("player")~=80 then return "Recycling requires level 80." end
+    if UnitIsDeadOrGhost("player") or UnitAffectingCombat("player") then return "You must be alive and out of combat." end
+    if UnitCastingInfo("player") or UnitChannelInfo("player") then return "Finish your current cast before recycling." end
+    if IsInInstance() then return "Leave the instance before recycling." end
 end
+local function LocalAllowed() return not LocalRestriction() end
 local function NotifyError(message)
     if Active() and UIErrorsFrame then UIErrorsFrame:AddMessage(message,1,0.2,0.2) end
 end
@@ -203,7 +207,13 @@ autofill:SetScript("OnClick",function()
 end)
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,27,RenderPicker) end)
 OpenPicker=function(index)
-    if not valid or not ready or operation or not LocalAllowed() then reason="Refresh in a safe location before choosing items.";NotifyError(reason);Render();return end
+    local blocked=LocalRestriction()
+    if not blocked then
+        if operation then blocked="Wait for your current recycling batch to finish."
+        elseif not valid then blocked="Refresh your inventory before choosing items."
+        elseif not ready then blocked=serverRestriction or "Recycling is temporarily unavailable." end
+    end
+    if blocked then NotifyError(blocked);Render();return end
     pickerIndex=index;pickerTitle:SetText("Choose an item for slot "..index)
     scroll.offset=0;RenderPicker();picker:Show()
 end
@@ -255,7 +265,7 @@ hooksecurefunc("PickupContainerItem",function(bag,slot)
 end)
 hooksecurefunc("ClearCursor",function() drag=nil end)
 local events=CreateFrame("Frame","ArcanaRecyclingEvents")
-for _,event in ipairs({"CHAT_MSG_ADDON","BAG_UPDATE","PLAYER_EQUIPMENT_CHANGED","PLAYER_ENTERING_WORLD","PLAYER_LOGOUT","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED","ZONE_CHANGED_NEW_AREA","GET_ITEM_INFO_RECEIVED","UNIT_SPELLCAST_START","UNIT_SPELLCAST_STOP","UNIT_SPELLCAST_CHANNEL_START","UNIT_SPELLCAST_CHANNEL_STOP"}) do events:RegisterEvent(event) end
+for _,event in ipairs({"CHAT_MSG_ADDON","BAG_UPDATE","PLAYER_EQUIPMENT_CHANGED","PLAYER_ENTERING_WORLD","PLAYER_LOGOUT","PLAYER_LEVEL_UP","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED","ZONE_CHANGED_NEW_AREA","GET_ITEM_INFO_RECEIVED","UNIT_SPELLCAST_START","UNIT_SPELLCAST_STOP","UNIT_SPELLCAST_CHANNEL_START","UNIT_SPELLCAST_CHANNEL_STOP"}) do events:RegisterEvent(event) end
 events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
     if event:find("^UNIT_SPELLCAST_") and prefix~="player" then return end
     if event=="CHAT_MSG_ADDON" then
@@ -275,6 +285,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
             if #f~=2 or not pending.rows or pending.invalid then valid=false;reason="Invalid inventory response. Refresh to try again.";NotifyError(reason)
             else
                 rows=pending.rows;positions=pending.positions;ready=pending.ready;reason=pending.reason;valid=true;generation=generation+1
+                serverRestriction=not ready and reason~="" and reason or nil
                 for i=1,10 do if selected[i] and not rows[selected[i]] then selected[i]=nil end end
                 if reason=="" then reason="Select ten items to recycle." end
             end
