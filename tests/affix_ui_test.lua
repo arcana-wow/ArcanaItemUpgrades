@@ -66,7 +66,8 @@ function SendAddonMessage(prefix, message, channel, who) sent[#sent+1]=message e
 function UnitName() return "Tester" end
 function GetTime() return now end
 local inside, dead, combat, tokens=false,false,false,1
-function IsInInstance() return inside end
+local instanceType = "none"
+function IsInInstance() return inside, instanceType end
 function UnitIsDeadOrGhost() return dead end
 function UnitAffectingCombat() return combat end
 function GetItemCount() return tokens end
@@ -184,7 +185,11 @@ StaticPopupDialogs.ARCANA_AFFIX_CONFIRM.OnAccept({},popup.data)
 check(#sent==paid,"duplicate confirmation sends no second request")
 receive("RESULT\tDone"); sync()
 check(button.enabled,"acknowledgement releases payment lock")
-inside=true; host:UpdateDisplay(); check(not button.enabled,"instance blocks remote use")
+for _,kind in ipairs({"party","raid","pvp","arena","unknown"}) do
+    inside=true;instanceType=kind;host:UpdateDisplay()
+    check(button.enabled==(kind=="party" or kind=="raid"),kind.." location policy")
+end
+instanceType="none"
 inside=false; combat=true; host:UpdateDisplay(); check(not button.enabled,"combat blocks remote use")
 combat=false; dead=true; host:UpdateDisplay(); check(not button.enabled,"dead blocks remote use")
 dead=false; tokens=0; host:UpdateDisplay(); check(not button.enabled,"missing token blocks payment")

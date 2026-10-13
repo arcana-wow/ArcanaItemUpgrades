@@ -120,8 +120,8 @@ local function IsRemoteLocationAllowed()
         return false, "Remote upgrades are unavailable in combat."
     end
     local inside, instanceType = IsInInstance()
-    if inside and instanceType ~= "none" then
-        return false, "Remote upgrades are unavailable inside instances."
+    if inside and instanceType ~= "none" and instanceType ~= "party" and instanceType ~= "raid" then
+        return false, "Remote upgrades are unavailable inside battlegrounds and arenas."
     end
     return true
 end

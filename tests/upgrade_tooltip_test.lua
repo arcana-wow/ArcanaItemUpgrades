@@ -68,7 +68,8 @@ function SendAddonMessage(prefix, message, channel, who) sent[#sent+1]={prefix=p
 function UnitName() return "Tester" end
 function GetTime() return now end
 local inside, dead, combat, tokens=false,false,false,1
-function IsInInstance() return inside end
+local instanceType = "none"
+function IsInInstance() return inside, instanceType end
 function UnitIsDeadOrGhost() return dead end
 function UnitAffectingCombat() return combat end
 function GetItemCount() return tokens end
@@ -299,4 +300,21 @@ fields[3]="22";fields[4]="1";check(host:UpgradeEquipValue(fields).label=="Armor"
 fields[3]="13";fields[4]="4";check(host:UpgradeEquipValue(fields).label=="Fire Damage","school spell damage label")
 fields[3]="99";fields[5]="nan";check(host:UpgradeEquipValue(fields)==nil,"invalid equip amount rejected")
 fields[5]="1e100";check(host:UpgradeEquipValue(fields)==nil,"unbounded equip amount rejected")
+-- Exercise the actual shared location gate used by the Tempering display.
+host.serviceTab="Tempering"
+local allowedLocation
+local previousEligibility=host.ServiceEligibility
+host.ServiceEligibility=function(self,selected,allowed,reason,maxRank)
+    allowedLocation=allowed
+    return reason,allowed
+end
+for _,kind in ipairs({"none","party","raid","pvp","arena","unknown"}) do
+    instanceType=kind;inside=kind~="none";host:UpdateDisplay()
+    check(allowedLocation==(kind=="none" or kind=="party" or kind=="raid"),"tempering location policy: "..kind)
+end
+inside=true;instanceType="party";combat=true;host:UpdateDisplay()
+check(not allowedLocation,"tempering still denies combat inside dungeons")
+combat=false;dead=true;host:UpdateDisplay()
+check(not allowedLocation,"tempering still denies dead players inside dungeons")
+dead=false;inside=false;instanceType="none";host.ServiceEligibility=previousEligibility
 print("PASS: "..checks.." upgrade tooltip integration checks (Lua 5.1)")

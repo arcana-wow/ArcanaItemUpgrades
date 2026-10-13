@@ -57,7 +57,8 @@ which revalidates the equipped item, payment item, expiry, rank, combat state,
 and location before applying an upgrade.
 
 Remote upgrades are available only while the character is alive, out of
-combat, and outside dungeons, raids, battlegrounds, and arenas. The Item
+combat, in the open world or PvE dungeons and raids. Battlegrounds and arenas
+remain blocked. The Item
 Upgrader NPC in major cities is the full fallback and does not require this
 addon.
 
@@ -239,7 +240,8 @@ Open `/upgrades`, or choose **Item Upgrades** in ArcanaPartyDraft. **Tempering**
 raises the existing rank; **Affixes** recalibrates the independent bonus;
 **Ascension** raises item level through 200, 226, 245, 264 and 284. Select an
 equipped item, hover the next-tier preview, then confirm its token cost.
-Ascension requires level 80 and a safe location outside instances and combat.
+Ascension requires level 80, alive and out of combat. PvE dungeons and raids
+are supported.
 The Item Upgrades NPC supplies all three services and sells the tokens.
 
 Install the matching Ascension `patch-4.MPQ` while the client is closed. Native
@@ -390,3 +392,11 @@ Autofill has no tooltip. Both actions invalidate old quotes and cannot change a
 batch awaiting its durable commit receipt. Recycling still requires explicit
 confirmation. The compact nine-row picker preserves and clamps scrolling as
 selected items leave the list.
+
+
+## Version 1.14.0 — PvE instance access
+
+Tempering, affix rerolls and Ascension are available inside dungeons and raids
+while alive and out of combat. Server checks still enforce ownership, costs,
+eligibility and transaction safety. Arena and battleground access is blocked.
+Recycling keeps its existing location restrictions.

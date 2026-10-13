@@ -40,8 +40,9 @@ local function RequestAuction(view)
     Send(message)
 end
 local function Allowed()
-    local inside = IsInInstance()
-    return not inside and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player")
+    local inside, instanceType = IsInInstance()
+    local allowedLocation = not inside or instanceType == "none" or instanceType == "party" or instanceType == "raid"
+    return allowedLocation and not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player")
 end
 -- A tooltip rebuild clears its font strings even when the hovered item has not
 -- changed. Keep the resolved instance separate from the currently drawn line.
