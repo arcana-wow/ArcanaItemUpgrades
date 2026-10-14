@@ -52,7 +52,8 @@ function UnitName() return "Tester" end
 function UnitLevel() return level end
 function UnitIsDeadOrGhost() return dead end
 function UnitAffectingCombat() return combat end
-function IsInInstance() return inside end
+local instanceType = "none"
+function IsInInstance() return inside, instanceType end
 function GetInventoryItemLink() return link end
 function GetTime() return now end
 local clickedLink
@@ -138,11 +139,25 @@ check(host.temperingRefreshed and host.affixesRefreshed)
 link="|Hitem:1234:0|h[Replacement]|h";host:UpdateDisplay();check(not button.enabled and not host:GetAscensionCatalogueEntry(15))
 link="|Hitem:9425:0|h[Pendum]|h";snapshot();check(button.enabled)
 for _,restriction in ipairs({"level","inside","dead","combat"}) do
-    if restriction=="level" then level=79 elseif restriction=="inside" then inside=true
+    if restriction=="level" then level=79 elseif restriction=="inside" then inside=true;instanceType="arena"
     elseif restriction=="dead" then dead=true else combat=true end
     host:UpdateDisplay();check(not button.enabled)
     level=80;inside=false;dead=false;combat=false
 end
+for _,kind in ipairs({"party","raid","pvp","arena","unknown"}) do
+    inside=true;instanceType=kind;snapshot();host:UpdateDisplay()
+    local allowed=kind=="party" or kind=="raid"
+    check(button.enabled==allowed)
+    if allowed then
+        button.scripts.OnClick();check(popup~=nil)
+        combat=true
+        local before=#sent
+        StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM.OnAccept({},popup.data)
+        check(#sent==before)
+        combat=false;StaticPopup_Hide()
+    end
+end
+inside=false;instanceType="none"
 snapshot("ITEM\t15\t123\t9425\t44\t500000\t194700\t0");check(not button.enabled)
 snapshot("ITEM\t15\t123\t9425\t284\t0\t0\t0");check(not button.enabled and not token:IsShown())
 check(host:GetAscensionCatalogueEntry(15)==9425)

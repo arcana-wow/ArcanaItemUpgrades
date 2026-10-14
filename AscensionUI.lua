@@ -102,9 +102,10 @@ preview:SetScript("OnUpdate",function()
     end
 end)
 local function Available(row)
-    local inside=IsInInstance()
+    local inside,instanceType=IsInInstance()
+    local allowedLocation=not inside or instanceType=="none" or instanceType=="party" or instanceType=="raid"
     return row and row.target>0 and row.count>0 and UnitLevel("player")==80 and
-        not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and not inside and not paying and not pending
+        not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and allowedLocation and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
     self:SetHeight(self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
