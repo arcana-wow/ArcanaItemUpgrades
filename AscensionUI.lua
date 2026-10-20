@@ -8,6 +8,7 @@ local explanations = {
     Affixes = "Reroll an item's bonus stat using a Recalibration Sigil.",
     Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
     Recycle = "Recycle exactly 10 carried items of ilvl 187 or higher. Requires level 80.",
+    Heirloom = "Unlock raid heirlooms for your account, then conjure permanent copies for your characters.",
 }
 local function TokenItemLink(token)
     local color=token==194704 and "ffff8000" or "ffa335ee"
@@ -108,9 +109,9 @@ local function Available(row)
         not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and allowedLocation and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
-    self:SetHeight(self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
+    self:SetHeight(self.serviceTab=="Heirloom" and 680 or self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
     for _,control in ipairs(self.EquipmentControls or {}) do
-        if self.serviceTab=="Recycle" then control:Hide() else control:Show() end
+        if self.serviceTab=="Recycle" or self.serviceTab=="Heirloom" then control:Hide() else control:Show() end
     end
     if self.serviceTab=="Tempering" then self.TemperingButton:Show() else self.TemperingButton:Hide() end
     for _,control in ipairs(self.AffixControls or {}) do
@@ -191,10 +192,11 @@ function frame:SetServiceTab(tab)
     self:UpdateDisplay()
     if tab=="Ascension" then Sync() end
     if self.RecyclingTabChanged then self:RecyclingTabChanged(tab) end
+    if self.HeirloomTabChanged then self:HeirloomTabChanged(tab) end
 end
-for i,name in ipairs({"Tempering","Affixes","Ascension","Recycle"}) do
+for i,name in ipairs({"Tempering","Affixes","Ascension","Recycle","Heirloom"}) do
     local button=CreateFrame("Button","ArcanaUpgradeTab"..i,frame,"UIPanelButtonTemplate")
-    button:SetSize(130,26);button:SetPoint("TOPLEFT",25+(i-1)*140,-47);button:SetText(name)
+    button:SetSize(106,26);button:SetPoint("TOPLEFT",25+(i-1)*112,-47);button:SetText(name)
     button:SetScript("OnClick",function() frame:SetServiceTab(name) end);tabs[name]=button
 end
 StaticPopupDialogs.ARCANA_ASCENSION_CONFIRM={

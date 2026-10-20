@@ -514,6 +514,7 @@ end
 
 upgradeButton:SetScript("OnClick", ShowSourceChooser)
 refresh:SetScript("OnClick", function()
+    if frame.serviceTab == "Heirloom" and frame.RefreshHeirlooms then frame:RefreshHeirlooms();return end
     if frame.serviceTab == "Recycle" and frame.RefreshRecycling then frame:RefreshRecycling();return end
     RequestSync(true)
 end)
@@ -547,6 +548,11 @@ local function OrderedSlots()
 end
 
 function frame:UpdateDisplay()
+    if self.serviceTab == "Heirloom" then
+        if self.ApplyServiceVisibility then self:ApplyServiceVisibility() end
+        if self.RenderHeirlooms then self:RenderHeirlooms() end
+        return
+    end
     if self.serviceTab == "Recycle" then
         if self.ApplyServiceVisibility then self:ApplyServiceVisibility() end
         if self.RenderRecycling then self:RenderRecycling() end

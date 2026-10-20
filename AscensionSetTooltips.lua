@@ -63,6 +63,7 @@ hooksecurefunc(tooltip,"SetInventoryItem",function(_,unit,slot)
     local link=GetInventoryItemLink(unit,slot)
     local guid=UnitGUID(unit)
     local entry=link and tonumber(link:match("item:(%d+)"))
+    if entry and ArcanaHeirloomCatalogue and ArcanaHeirloomCatalogue[entry] then view=nil;return end
     if not entry or not guid then view=nil;return end
     local key=guid..":"..slot..":"..link
     local size=0

@@ -1,5 +1,25 @@
 # ArcanaItemUpgrades
 
+## Heirlooms (1.15.0)
+
+The Heirloom tab tracks account-wide Progressing and Unlocked collections.
+Search includes undiscovered items and previews the heirloom at your current
+level. Armor/weapon and slot filters narrow the list. Select an item to view
+its raid source, unlock progress and Forge payment options.
+
+Receiving an eligible original discovers it at 0% without destroying it.
+Forge accepts gold, Triumph, Frost, Wintergrasp Marks, Dogtags or a matching
+original, with quantity/range preview and confirmation. At 100%, any character
+on the account can conjure a permanent Unique copy for free. The server checks
+bank ownership, inventory changes and durable receipts before completing a
+request. Copies cannot be recycled, sold, disenchanted or traded.
+
+Custom stats, procs and set tooltips follow levels 1–80. Heirloom set bonuses
+count only distinct pieces from the same heirloom set. Both heirloom Warglaives
+are required for their haste proc. Install the matching five-DBC patch-4.MPQ.
+
+Run all Lua checks with `for test_file in tests/*_test.lua; do lua5.1 "$test_file"; done`.
+
 ## Recycling (1.11.0)
 
 The Recycle tab accepts exactly ten carried equipment items of current ilvl 187
