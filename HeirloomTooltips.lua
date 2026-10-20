@@ -24,7 +24,10 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
     local entry=Entry(link)
     local item=entry and D.items[entry]
     if not item then return end
-    local level=math.max(1,math.min(80,UnitLevel(unit or "player") or 1))
+    -- The native item cache is scoped to the viewer's level, including when
+    -- inspecting another character. Keep equipment and effect previews at the
+    -- same level; the server still applies combat values at the wearer's level.
+    local level=math.max(1,math.min(80,UnitLevel("player") or 1))
     local key=tostring(entry)..":"..level..":"..tostring(unit)
     if tooltip.arcanaHeirloomText==key then return end
     tooltip.arcanaHeirloomText=key
@@ -42,10 +45,14 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
         end
     end
     local effectIndex,setIndex=0,0
+    local previewText="Heirloom preview: level "..level..". Scales with wearer."
+    local previewShown=false
     for index=1,tooltip:NumLines() do
         local line=_G[tooltip:GetName().."TextLeft"..index]
         local text=line and Plain(line:GetText())
-        if text and (text:match("^Equip:") or text:match("^Use:") or text:match("^Chance on hit:")) then
+        if text and text:match("^Heirloom preview: level %d+%.") then
+            line:SetText(previewText);previewShown=true
+        elseif text and (text:match("^Equip:") or text:match("^Use:") or text:match("^Chance on hit:")) then
             effectIndex=effectIndex+1
             line:SetText(effects[effectIndex] or "");line:SetTextColor(0,1,0)
         elseif text and (text:match("^%(%d+%) Set:") or text:match("^Set:")) then
@@ -63,6 +70,7 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
         local bonus=bonuses[index]
         tooltip:AddLine(bonus.text,bonus.active and 0 or 0.5,bonus.active and 1 or 0.5,bonus.active and 0 or 0.5,true)
     end
+    if not previewShown then tooltip:AddLine(previewText,1,0.82,0,true) end
     tooltip:Show()
 end
 local tooltip=GameTooltip

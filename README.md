@@ -1,6 +1,6 @@
 # ArcanaItemUpgrades
 
-## Heirlooms (1.15.0)
+## Heirlooms (1.15.1)
 
 The Heirloom tab tracks account-wide Progressing and Unlocked collections.
 Search includes undiscovered items and previews the heirloom at your current
@@ -17,6 +17,9 @@ request. Copies cannot be recycled, sold, disenchanted or traded.
 Custom stats, procs and set tooltips follow levels 1–80. Heirloom set bonuses
 count only distinct pieces from the same heirloom set. Both heirloom Warglaives
 are required for their haste proc. Install the matching five-DBC patch-4.MPQ.
+Tooltips explicitly preview stats, procs and set amounts at your current level,
+including when inspecting another character. Set activation reflects the
+inspected equipment; actual combat values always use the wearer's level.
 
 Run all Lua checks with `for test_file in tests/*_test.lua; do lua5.1 "$test_file"; done`.
 
