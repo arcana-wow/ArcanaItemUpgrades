@@ -1,6 +1,9 @@
 local frames,sent={},{}
 local now,level=1,30
 local equipment={[16]=700001,[17]=700002}
+local extraLines={}
+local nativeEffectText="Chance on hit: Native level 80 amount"
+local probeReads={}
 local methods={}
 function methods:GetName()return self.name end
 function methods:GetText()return self.text end
@@ -25,7 +28,17 @@ end
 function methods:SetHyperlink(link)
     self.link=link;self.count=0
     if self.scripts.OnTooltipCleared then self.scripts.OnTooltipCleared(self)end
-    self:AddLine("Test weapon");self:AddLine("Chance on hit: Native level 80 amount")
+    if self.name=="ArcanaHeirloomSpellTooltip" then
+        local spell=tonumber(link:match("spell:(%d+)"))
+        probeReads[spell]=(probeReads[spell] or 0)+1
+        self:AddLine("Native spell");self:AddLine("Instant")
+        if spell==12 then self:AddLine("Native equip");self:AddLine("proc")
+        else self:AddLine("Native level 80 amount") end
+        return
+    end
+    self:AddLine("Test weapon")
+    for _,text in ipairs(extraLines)do self:AddLine(text)end
+    if nativeEffectText then self:AddLine(nativeEffectText)end
     self:AddLine("Twin Blades (0/2)");self:AddLine("(2) Set: Native haste")
 end
 function methods:SetInventoryItem(unit,slot)self:SetHyperlink(GetInventoryItemLink(unit,slot))end
@@ -46,14 +59,17 @@ function SendAddonMessage(prefix,message,channel,target)
 end
 UIParent=CreateFrame("Frame","UIParent")
 GameTooltip=CreateFrame("GameTooltip","GameTooltip");GameTooltip:SetOwner(UIParent)
-ArcanaHeirloomEffects={text={},spells={[10]={},[11]={}},items={
+ArcanaHeirloomEffects={text={},spells={[10]={},[11]={},[12]={}},items={
     [700001]={set=10000,effects={{2,10}}},
     [700002]={set=10000,effects={}},
+    [700003]={set=0,effects={{1,12}}},
 },sets={[10000]={items={700001,700002},bonuses={{2,11}}}}}
 for i=1,80 do
     ArcanaHeirloomEffects.text[i]="Deals "..i.." damage."
     ArcanaHeirloomEffects.text[80+i]="Grants "..i.." haste."
     ArcanaHeirloomEffects.spells[10][i]=i;ArcanaHeirloomEffects.spells[11][i]=80+i
+    ArcanaHeirloomEffects.text[160+i]="Raises power by "..i.."."
+    ArcanaHeirloomEffects.spells[12][i]=160+i
 end
 dofile("HeirloomTooltips.lua")
 local events=frames[#frames]
@@ -77,6 +93,25 @@ check(GameTooltip:NumLines()==5 and GameTooltipTextLeft5:GetText()==
     "Heirloom preview: level 80. Scales with wearer.")
 ArcanaRenderHeirloomTooltip(GameTooltip,"target")
 check(GameTooltip:NumLines()==5) -- Nested hooks and repeated renders do not duplicate the label.
+extraLines={"Equip: Improves critical strike rating by 12.",
+    "|cff00ff00Equip: Increases attack power by 24.|r","Equip: Unrelated addon text"}
+GameTooltip:SetInventoryItem("target",16)
+check(GameTooltipTextLeft2:GetText()==extraLines[1] and GameTooltipTextLeft3:GetText()==extraLines[2])
+check(GameTooltipTextLeft4:GetText()==extraLines[3])
+check(GameTooltipTextLeft5:GetText()=="Chance on hit: Deals 80 damage." and GameTooltip:NumLines()==8)
+nativeEffectText="Equip: Native equip proc"
+GameTooltip:SetHyperlink("item:700003")
+check(GameTooltipTextLeft2:GetText()==extraLines[1] and GameTooltipTextLeft3:GetText()==extraLines[2])
+check(GameTooltipTextLeft4:GetText()==extraLines[3] and GameTooltipTextLeft5:GetText()=="Equip: Raises power by 80.")
+local reads=probeReads[12]
+GameTooltip:SetHyperlink("item:700003");check(probeReads[12]==reads)
+events.scripts.OnEvent(events,"PLAYER_LEVEL_UP")
+GameTooltip:SetHyperlink("item:700003");check(probeReads[12]==reads+1)
+nativeEffectText=nil
+GameTooltip:SetHyperlink("item:700002") -- Tier pieces with no proc retain native stats.
+check(GameTooltipTextLeft2:GetText()==extraLines[1] and GameTooltipTextLeft3:GetText()==extraLines[2])
+check(GameTooltipTextLeft4:GetText()==extraLines[3] and GameTooltip:NumLines()==7)
+extraLines={};nativeEffectText="Chance on hit: Native level 80 amount"
 equipment[17]=32838;GameTooltip:SetInventoryItem("player",16)
 check(GameTooltipTextLeft3:GetText()=="Twin Blades (1/2)" and GameTooltipTextLeft4.color[1]==0.5)
 GameTooltip:SetHyperlink("item:700001")
