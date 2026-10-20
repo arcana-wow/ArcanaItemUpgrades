@@ -7,7 +7,38 @@ local function Description(spell,level)
     local row=D.spells[spell]
     return row and D.text[row[#row==1 and 1 or level]]
 end
-local function Plain(text) return (text or ""):gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r","") end
+local function Plain(text)
+    return (text or ""):gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r",""):gsub("%s+"," "):match("^%s*(.-)%s*$")
+end
+-- Rating stats also begin with "Equip:". Identify the actual native spell
+-- description through a private spell tooltip instead of consuming those rows
+-- by position. This also preserves unrelated enchant/affix/addon text.
+local probe=CreateFrame("GameTooltip","ArcanaHeirloomSpellTooltip",UIParent,"GameTooltipTemplate")
+local nativeCache={}
+local function NativeDescriptions(spell)
+    if nativeCache[spell] then return nativeCache[spell] end
+    local descriptions,lines={},{}
+    probe:SetOwner(UIParent,"ANCHOR_NONE")
+    if pcall(probe.SetHyperlink,probe,"spell:"..spell) then
+        for index=2,math.min(32,probe:NumLines()) do
+            local line=_G[probe:GetName().."TextLeft"..index]
+            local text=Plain(line and line:GetText())
+            if text~="" then lines[#lines+1]=text end
+        end
+        -- A description can occupy multiple native font rows. Other spell
+        -- metadata is harmless: only exact item-effect text can match it.
+        for first=1,#lines do
+            local text=""
+            for last=first,#lines do
+                text=text=="" and lines[last] or text.." "..lines[last]
+                descriptions[text]=true
+            end
+        end
+    end
+    probe:Hide()
+    nativeCache[spell]=descriptions
+    return descriptions
+end
 local function SetCount(set,unit)
     if not unit then return 0 end
     local members,seen,count={},{},0
@@ -34,7 +65,10 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
     local effects,bonuses={},{}
     for _,effect in ipairs(item.effects) do
         local text=Description(effect[2],level)
-        if text and text~="" then effects[#effects+1]=(prefixes[effect[1]] or "Effect: ")..text end
+        if text and text~="" then
+            local prefix=prefixes[effect[1]] or "Effect: "
+            effects[#effects+1]={prefix=prefix,text=prefix..text,spell=effect[2]}
+        end
     end
     local set=D.sets[item.set]
     local count=set and SetCount(set,unit) or 0
@@ -44,7 +78,7 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
             if text then bonuses[#bonuses+1]={text="("..bonus[1]..") Set: "..text,active=count>=bonus[1]} end
         end
     end
-    local effectIndex,setIndex=0,0
+    local setIndex=0
     local previewText="Heirloom preview: level "..level..". Scales with wearer."
     local previewShown=false
     for index=1,tooltip:NumLines() do
@@ -53,8 +87,14 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
         if text and text:match("^Heirloom preview: level %d+%.") then
             line:SetText(previewText);previewShown=true
         elseif text and (text:match("^Equip:") or text:match("^Use:") or text:match("^Chance on hit:")) then
-            effectIndex=effectIndex+1
-            line:SetText(effects[effectIndex] or "");line:SetTextColor(0,1,0)
+            for _,effect in ipairs(effects) do
+                if not effect.seen and text:sub(1,#effect.prefix)==effect.prefix and
+                    (text==Plain(effect.text) or NativeDescriptions(effect.spell)[text:sub(#effect.prefix+1)]) then
+                    line:SetText(effect.text);line:SetTextColor(0,1,0)
+                    effect.seen=true
+                    break
+                end
+            end
         elseif text and (text:match("^%(%d+%) Set:") or text:match("^Set:")) then
             setIndex=setIndex+1
             local bonus=bonuses[setIndex]
@@ -65,7 +105,9 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
             if name then line:SetText(name.." ("..count.."/"..total..")") end
         end
     end
-    for index=effectIndex+1,#effects do tooltip:AddLine(effects[index],0,1,0,true) end
+    for _,effect in ipairs(effects) do
+        if not effect.seen then tooltip:AddLine(effect.text,0,1,0,true) end
+    end
     for index=setIndex+1,#bonuses do
         local bonus=bonuses[index]
         tooltip:AddLine(bonus.text,bonus.active and 0 or 0.5,bonus.active and 1 or 0.5,bonus.active and 0 or 0.5,true)
@@ -97,7 +139,9 @@ local events=CreateFrame("Frame")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:SetScript("OnEvent",function(_,event,entry)
-    if event=="PLAYER_LEVEL_UP" then preview=nil;tooltip.arcanaHeirloomText=nil;return end
+    if event=="PLAYER_LEVEL_UP" then
+        preview=nil;nativeCache={};tooltip.arcanaHeirloomText=nil;return
+    end
     if not preview or entry~=preview.entry or GetTime()>preview.expires or
         not tooltip:IsShown() or tooltip:GetOwner()~=preview.owner then return end
     local _,link=tooltip:GetItem()

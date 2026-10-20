@@ -1,6 +1,6 @@
 # ArcanaItemUpgrades
 
-## Heirlooms (1.15.1)
+## Heirlooms (1.15.2)
 
 The Heirloom tab tracks account-wide Progressing and Unlocked collections.
 Search includes undiscovered items and previews the heirloom at your current
@@ -20,6 +20,8 @@ are required for their haste proc. Install the matching five-DBC patch-4.MPQ.
 Tooltips explicitly preview stats, procs and set amounts at your current level,
 including when inspecting another character. Set activation reflects the
 inspected equipment; actual combat values always use the wearer's level.
+Proc replacement matches native spell descriptions, preserving rating stats
+and other tooltip text that also begins with `Equip:`.
 
 Run all Lua checks with `for test_file in tests/*_test.lua; do lua5.1 "$test_file"; done`.
 
