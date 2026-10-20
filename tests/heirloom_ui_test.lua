@@ -1,0 +1,135 @@
+local frames,sent,menus={},{},{}
+local now,combat,dead,level=1,false,false,30
+local methods={}
+function methods:SetScript(event,fn) self.scripts[event]=fn end
+function methods:HookScript(event,fn)
+    local old=self.scripts[event]
+    self.scripts[event]=function(...) if old then old(...) end;fn(...) end
+end
+function methods:Show() self.shown=true end
+function methods:Hide() self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
+function methods:IsShown() return self.shown~=false end
+function methods:Enable() self.enabled=true end
+function methods:Disable() self.enabled=false end
+function methods:SetText(text)
+    self.text=tostring(text)
+    if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+end
+function methods:GetText() return self.text or "" end
+function methods:CreateFontString() return CreateFrame("Font",nil,self) end
+function CreateFrame(kind,name,parent)
+    local frame=setmetatable({kind=kind,name=name,parent=parent,scripts={}},{__index=function(_,key)
+        return methods[key] or (key:match("^[A-Z]") and function() end)
+    end})
+    if name then frames[name]=frame end
+    return frame
+end
+UIParent=CreateFrame("Frame")
+ArcanaItemUpgradesFrame=CreateFrame("Frame")
+ArcanaItemUpgradesFrame.serviceTab="Heirloom"
+ArcanaItemUpgradesDB={}
+GameTooltip=CreateFrame("Tooltip")
+CANCEL="Cancel"
+function UIDropDownMenu_Initialize(frame,fn) frame.initialize=fn end
+function UIDropDownMenu_SetWidth() end
+function UIDropDownMenu_SetText(frame,text) frame.text=text end
+function UIDropDownMenu_CreateInfo() return {} end
+function UIDropDownMenu_AddButton(info) menus[#menus+1]=info end
+function FauxScrollFrame_Update() end
+function FauxScrollFrame_GetOffset(frame) return frame.offset or 0 end
+function FauxScrollFrame_OnVerticalScroll(frame,offset,height,render) frame.offset=math.floor(offset/height);render() end
+function IsInInstance() return false,"none" end
+function UnitIsDeadOrGhost() return dead end
+function UnitAffectingCombat() return combat end
+function UnitCastingInfo() end
+function UnitChannelInfo() end
+function UnitLevel() return level end
+function UnitName() return "Tester" end
+function GetRealmName() return "Test" end
+function GetTime() return now end
+function GetItemInfo(entry) return "Item "..entry end
+function GetContainerItemLink() return "item:16905" end
+function SendAddonMessage(prefix,message,channel,target)
+    assert(prefix=="ARHL" and channel=="WHISPER" and target=="Tester")
+    sent[#sent+1]=message
+end
+ArcanaHeirloomCatalogue={
+    [700001]={name="Bloodfang Chestpiece",source=16905,class=4,subclass=2,slot=5,tier="Tier 2",origin="Blackwing Lair: Nefarian"},
+    [700002]={name="Thunderfury",source=19019,class=2,subclass=7,slot=21,tier="",origin="Molten Core: Bindings"},
+}
+dofile("HeirloomProtocol.lua");dofile("HeirloomUI.lua")
+local P=ArcanaHeirloomProtocol
+local host=ArcanaItemUpgradesFrame
+local events=frames.ArcanaHeirloomEvents
+local forge=frames.ArcanaHeirloomForge
+local confirmation=frames.ArcanaHeirloomConfirmation
+local checks=0
+local function check(value) checks=checks+1;assert(value,"check "..checks) end
+local function click(name) local frame=frames[name];frame.scripts.OnClick(frame) end
+local function event(name,...) events.scripts.OnEvent(events,name,...) end
+local function tick(seconds) now=now+(seconds or 1);events.scripts.OnUpdate(events) end
+local function request() return P.Split(sent[#sent]) end
+local function receive(message,sender) event("CHAT_MSG_ADDON","ARHL",message,"WHISPER",sender or "Tester") end
+local function snapshot(progress)
+    local req=request();check(req[1]=="SYNC")
+    receive("BEGIN\t"..req[2].."\t1\t1")
+    receive("ROW\t"..req[2].."\t700001\t"..(progress or 0).."\t0")
+    receive("ORIGINAL\t"..req[2].."\t700001\t42\t0\t1\t16905")
+    receive("END\t"..req[2])
+end
+local id=string.rep("a",32)
+local function quote()
+    click("ArcanaHeirloomForge")
+    local req=request();check(req[1]=="QUOTE")
+    receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t6\t10\t2\t0\t0\t30")
+    check(confirmation:IsShown())
+end
+host:HeirloomTabChanged("Heirloom");snapshot();click("ArcanaHeirloomRow1")
+check(forge.enabled)
+frames.ArcanaHeirloomQuantity:SetText("0");check(not forge.enabled)
+frames.ArcanaHeirloomQuantity:SetText("101");check(not forge.enabled)
+frames.ArcanaHeirloomQuantity:SetText("2");check(forge.enabled)
+quote();local count=#sent
+click("ArcanaHeirloomConfirmCancel");check(not confirmation:IsShown() and #sent==count)
+quote();host:HeirloomTabChanged("Tempering");check(not confirmation:IsShown())
+host.serviceTab="Heirloom";tick();host:HeirloomTabChanged("Heirloom");snapshot()
+quote();tick(31);check(not confirmation:IsShown())
+quote();combat=true;event("PLAYER_REGEN_DISABLED");check(not confirmation:IsShown() and not forge.enabled)
+combat=false;tick();snapshot();check(forge.enabled)
+quote();click("ArcanaHeirloomConfirmAccept")
+check(request()[1]=="COMMIT" and ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
+check(not forge.enabled and not confirmation:IsShown())
+event("BAG_UPDATE");check(request()[1]=="COMMIT")
+tick(8);tick(2);check(request()[1]=="STATUS")
+local req=request()
+receive("ERROR\t"..req[2].."\tYour transaction history could not be read.")
+check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id and not forge.enabled)
+tick(6);req=request();check(req[1]=="STATUS")
+receive("DONE\t"..req[2].."\t1\t700001\t6\t2\t0","Spoofed")
+check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
+receive("DONE\t"..req[2].."\t1\t700001\t6\t2\t0")
+check(not ArcanaItemUpgradesDB.heirloomPending["Test:Tester"])
+tick();snapshot(100);click("ArcanaHeirloomUnlocked")
+check(forge.text=="Conjure" and forge.enabled)
+click("ArcanaHeirloomForge");req=request();check(req[1]=="CONJURE")
+receive("QUOTE\t"..req[2].."\t"..id.."\t2\t700001\t100\t0\t0\t1\t0\t0\t30")
+check(confirmation:IsShown() and frames.ArcanaHeirloomConfirmAccept.text=="Conjure")
+click("ArcanaHeirloomConfirmAccept");req=request()
+receive("ERROR\t"..req[2].."\tMake room in your bags before conjuring.")
+check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
+tick(2);req=request();check(req[1]=="STATUS")
+receive("MISSING\t"..req[2]);check(not ArcanaItemUpgradesDB.heirloomPending["Test:Tester"])
+tick();snapshot(0);click("ArcanaHeirloomProgressing")
+menus={};frames.ArcanaHeirloomMaterial.initialize();menus[6].func()
+check(frames.ArcanaHeirloomQuantity:GetText()=="1" and not forge.enabled)
+menus={};frames.ArcanaHeirloomOriginal.initialize();check(#menus==1);menus[1].func()
+check(forge.enabled);click("ArcanaHeirloomForge");req=request()
+check(req[4]=="5" and req[5]=="1" and req[6]=="42")
+receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t20\t20\t1\t5\t42\t30")
+check(confirmation:IsShown())
+event("BAG_UPDATE");check(not confirmation:IsShown() and not forge.enabled)
+tick();snapshot()
+frames.ArcanaHeirloomSearch:SetText("thunder");check(frames.ArcanaHeirloomRow1.entry==700002)
+click("ArcanaHeirloomRow1");check(not forge.enabled)
+dead=true;event("PLAYER_REGEN_ENABLED");check(not forge.enabled)
+print("PASS "..checks.." heirloom UI confirmation, stale inventory, timeout, ambiguous receipt, spoof, discovery and filtering checks")
