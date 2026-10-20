@@ -65,13 +65,24 @@ for i=1,80 do
     check(GameTooltipTextLeft4:GetText()=="(2) Set: Grants "..i.." haste.")
     check(GameTooltipTextLeft3:GetText()=="Twin Blades (2/2)")
     check(GameTooltipTextLeft4.color[2]==1 and GameTooltipTextLeft4.color[1]==0)
+    check(GameTooltip:NumLines()==5 and GameTooltipTextLeft5:GetText()==
+        "Heirloom preview: level "..i..". Scales with wearer.")
 end
-GameTooltip:SetInventoryItem("target",16);check(GameTooltipTextLeft2:GetText():find("20 damage",1,true))
+-- The inspected target is level 20; native item-query stats still describe the
+-- level-80 viewer. All effect/set amounts must use that same explicit preview.
+GameTooltip:SetInventoryItem("target",16)
+check(GameTooltipTextLeft2:GetText()=="Chance on hit: Deals 80 damage.")
+check(GameTooltipTextLeft4:GetText()=="(2) Set: Grants 80 haste.")
+check(GameTooltip:NumLines()==5 and GameTooltipTextLeft5:GetText()==
+    "Heirloom preview: level 80. Scales with wearer.")
+ArcanaRenderHeirloomTooltip(GameTooltip,"target")
+check(GameTooltip:NumLines()==5) -- Nested hooks and repeated renders do not duplicate the label.
 equipment[17]=32838;GameTooltip:SetInventoryItem("player",16)
 check(GameTooltipTextLeft3:GetText()=="Twin Blades (1/2)" and GameTooltipTextLeft4.color[1]==0.5)
 GameTooltip:SetHyperlink("item:700001")
 check(GameTooltipTextLeft3:GetText()=="Twin Blades (0/2)" and GameTooltipTextLeft4.color[1]==0.5)
-GameTooltip:SetHyperlink("item:19019");check(GameTooltipTextLeft2:GetText()=="Chance on hit: Native level 80 amount")
+GameTooltip:SetHyperlink("item:19019")
+check(GameTooltipTextLeft2:GetText()=="Chance on hit: Native level 80 amount" and GameTooltip:NumLines()==4)
 ArcanaHeirloomPreview(UIParent,700001);check(#sent==1 and sent[1]:find("PREVIEW",1,true))
 GameTooltip:SetHyperlink("item:19019")
 events.scripts.OnEvent(events,"GET_ITEM_INFO_RECEIVED",700001)
