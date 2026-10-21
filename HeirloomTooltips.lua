@@ -79,12 +79,12 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
         end
     end
     local setIndex=0
-    local previewText="Heirloom preview: level "..level..". Scales with wearer."
+    local previewText="Requires level 1 to 80 ("..level..")"
     local previewShown=false
     for index=1,tooltip:NumLines() do
         local line=_G[tooltip:GetName().."TextLeft"..index]
         local text=line and Plain(line:GetText())
-        if text and text:match("^Heirloom preview: level %d+%.") then
+        if text and (text:match("^Heirloom preview: level %d+%.") or text:match("^Requires level 1 to 80 %(%d+%)$") or text=="Requires Level 1") then
             line:SetText(previewText);previewShown=true
         elseif text and (text:match("^Equip:") or text:match("^Use:") or text:match("^Chance on hit:")) then
             for _,effect in ipairs(effects) do
@@ -112,7 +112,7 @@ function ArcanaRenderHeirloomTooltip(tooltip,unit)
         local bonus=bonuses[index]
         tooltip:AddLine(bonus.text,bonus.active and 0 or 0.5,bonus.active and 1 or 0.5,bonus.active and 0 or 0.5,true)
     end
-    if not previewShown then tooltip:AddLine(previewText,1,0.82,0,true) end
+    if not previewShown then tooltip:AddLine(previewText,1,1,1,true) end
     tooltip:Show()
 end
 local tooltip=GameTooltip

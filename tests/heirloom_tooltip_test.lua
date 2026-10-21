@@ -82,7 +82,7 @@ for i=1,80 do
     check(GameTooltipTextLeft3:GetText()=="Twin Blades (2/2)")
     check(GameTooltipTextLeft4.color[2]==1 and GameTooltipTextLeft4.color[1]==0)
     check(GameTooltip:NumLines()==5 and GameTooltipTextLeft5:GetText()==
-        "Heirloom preview: level "..i..". Scales with wearer.")
+        "Requires level 1 to 80 ("..i..")")
 end
 -- The inspected target is level 20; native item-query stats still describe the
 -- level-80 viewer. All effect/set amounts must use that same explicit preview.
@@ -90,7 +90,7 @@ GameTooltip:SetInventoryItem("target",16)
 check(GameTooltipTextLeft2:GetText()=="Chance on hit: Deals 80 damage.")
 check(GameTooltipTextLeft4:GetText()=="(2) Set: Grants 80 haste.")
 check(GameTooltip:NumLines()==5 and GameTooltipTextLeft5:GetText()==
-    "Heirloom preview: level 80. Scales with wearer.")
+    "Requires level 1 to 80 (80)")
 ArcanaRenderHeirloomTooltip(GameTooltip,"target")
 check(GameTooltip:NumLines()==5) -- Nested hooks and repeated renders do not duplicate the label.
 extraLines={"Equip: Improves critical strike rating by 12.",
