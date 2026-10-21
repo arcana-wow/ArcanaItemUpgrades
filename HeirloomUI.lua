@@ -4,7 +4,7 @@ local progress,originals,filtered={},{},{}
 local selected,quote,pending,operation,snapshot,refreshAt
 local serial,lastRequest=0,-1
 local mode,source,original="Progressing",0,0
-local itemClass,subclass,slotFilter
+local itemClass,subclass,slotFilter,filterName
 local valid,reason=false,"Loading your account's heirlooms..."
 local Render,Sync,Invalidate
 local panel=CreateFrame("Frame","ArcanaHeirloomPanel",host)
@@ -39,56 +39,97 @@ local function Request(kind,extra,selection)
     if selection then selection.request=serial end
     SendAddonMessage("ARHL",kind.."\t"..serial..(extra and "\t"..extra or ""),"WHISPER",UnitName("player"))
 end
+local function ResetScroll()
+    local frame=_G["ArcanaHeirloomScroll"]
+    if frame then FauxScrollFrame_SetOffset(frame,0) end
+end
 local progressing=Button("ArcanaHeirloomProgressing",panel,"Progressing",0,0,125,function()
-    mode="Progressing";Invalidate();Render()
+    mode="Progressing";ResetScroll();Invalidate();Render()
 end)
 local unlocked=Button("ArcanaHeirloomUnlocked",panel,"Unlocked",130,0,125,function()
-    mode="Unlocked";Invalidate();Render()
+    mode="Unlocked";ResetScroll();Invalidate();Render()
 end)
 local search=CreateFrame("EditBox","ArcanaHeirloomSearch",panel,"InputBoxTemplate")
 search:SetPoint("TOPLEFT",278,-2);search:SetSize(272,22);search:SetAutoFocus(false);search:SetMaxLetters(80)
 search:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
-search:SetScript("OnTextChanged",function() if Invalidate then Invalidate();Render() end end)
+search:SetScript("OnTextChanged",function() if Invalidate then ResetScroll();Invalidate();Render() end end)
 Label(panel,"Search all eligible heirlooms",278,-27,275,"GameFontHighlightSmall")
-local typeDrop=CreateFrame("Frame","ArcanaHeirloomType",panel,"UIDropDownMenuTemplate")
-typeDrop:SetPoint("TOPLEFT",-16,-44);UIDropDownMenu_SetWidth(typeDrop,240)
-local slotDrop=CreateFrame("Frame","ArcanaHeirloomSlot",panel,"UIDropDownMenuTemplate")
-slotDrop:SetPoint("TOPLEFT",265,-44);UIDropDownMenu_SetWidth(slotDrop,240)
-local types={{"All armor and weapons"},{"Cloth",4,1},{"Leather",4,2},{"Mail",4,3},{"Plate",4,4},
-    {"Shield",4,6},{"Jewellery, cloaks and trinkets",4,0},{"Relics",4,nil},
-    {"One-hand axe",2,0},{"Two-hand axe",2,1},{"Bow",2,2},{"Gun",2,3},{"One-hand mace",2,4},
-    {"Two-hand mace",2,5},{"Polearm",2,6},{"One-hand sword",2,7},{"Two-hand sword",2,8},
-    {"Staff",2,10},{"Fist weapon",2,13},{"Dagger",2,15},{"Thrown",2,16},{"Crossbow",2,18},{"Wand",2,19}}
-local slots={{"All slots"},{"Head",1},{"Neck",2},{"Shoulders",3},{"Chest",5},{"Waist",6},{"Legs",7},
-    {"Feet",8},{"Wrists",9},{"Hands",10},{"Finger",11},{"Trinket",12},{"One-hand",13},
-    {"Shield",14},{"Ranged",15},{"Cloak",16},{"Two-hand",17},{"Robe",20},{"Main hand",21},
-    {"Off hand",22},{"Held off-hand",23},{"Thrown",25},{"Ranged weapon",26},{"Relic",28}}
-UIDropDownMenu_Initialize(typeDrop,function()
-    for _,definition in ipairs(types) do
-        local row=definition
+local filter=CreateFrame("Frame","ArcanaHeirloomFilter",panel,"UIDropDownMenuTemplate")
+filter:SetPoint("TOPLEFT",-16,-44);UIDropDownMenu_SetWidth(filter,240)
+local filterSummary=Label(panel,"All items",278,-53,210,"GameFontHighlightSmall")
+local function ChooseFilter(name,kind,sub,slot)
+    filterName,itemClass,subclass,slotFilter=name,kind,sub,slot
+    UIDropDownMenu_SetText(filter,"Filter: "..name)
+    filterSummary:SetText(name)
+    ResetScroll()
+    Invalidate();Render()
+end
+local clearFilter=Button("ArcanaHeirloomClearFilter",panel,"Clear",490,-47,60,function()
+    ChooseFilter("All items")
+end)
+local filterGroups={
+    {"Armor",{{"All armor",4,"armor"},{"Cloth",4,1},{"Leather",4,2},{"Mail",4,3},{"Plate",4,4},
+        {"Head",4,"armor",1},{"Shoulders",4,"armor",3},{"Chest",4,"armor","chest"},
+        {"Wrists",4,"armor",9},{"Hands",4,"armor",10},{"Waist",4,"armor",6},
+        {"Legs",4,"armor",7},{"Feet",4,"armor",8}}},
+    {"Weapons",{{"All weapons",2},{"One-hand axes",2,0},{"Two-hand axes",2,1},{"Bows",2,2},
+        {"Guns",2,3},{"One-hand maces",2,4},{"Two-hand maces",2,5},{"Polearms",2,6},
+        {"One-hand swords",2,7},{"Two-hand swords",2,8},{"Staves",2,10},{"Fist weapons",2,13},
+        {"Daggers",2,15},{"Thrown",2,16},{"Crossbows",2,18},{"Wands",2,19}}},
+    {"Accessories",{{"Necks",4,nil,2},{"Rings",4,nil,11},{"Trinkets",4,nil,12},
+        {"Cloaks",4,nil,16},{"Shields",4,6},{"Held off-hands",4,nil,23},{"Relics",4,nil,28}}},
+}
+UIDropDownMenu_Initialize(filter,function(_,level)
+    level=level or 1
+    local function AddChoice(row)
         local info=UIDropDownMenu_CreateInfo();info.text=row[1]
+        info.checked=filterName==row[1]
         info.func=function()
-            itemClass,subclass=row[2],row[3]
-            if row[1]=="Relics" then slotFilter=28;UIDropDownMenu_SetText(slotDrop,"Relic") end
-            UIDropDownMenu_SetText(typeDrop,row[1]);Invalidate();Render()
+            local name,kind,sub,slot=row[1],row[2],row[3],row[4]
+            if kind==4 and (sub=="armor" or type(sub)=="number" and sub>=1 and sub<=4) and name~="All armor" then
+                if slot and itemClass==4 and type(subclass)=="number" and subclass>=1 and subclass<=4 then sub=subclass end
+                if not slot and itemClass==4 and slotFilter and (subclass=="armor" or type(subclass)=="number" and subclass>=1 and subclass<=4) then slot=slotFilter end
+                if slot and type(sub)=="number" then
+                    local materialNames={"Cloth","Leather","Mail","Plate"}
+                    local slotNames={[1]="Head",[3]="Shoulders",chest="Chest",[9]="Wrists",[10]="Hands",[6]="Waist",[7]="Legs",[8]="Feet"}
+                    name=materialNames[sub].." / "..slotNames[slot]
+                end
+            end
+            ChooseFilter(name,kind,sub,slot);CloseDropDownMenus()
         end
-        UIDropDownMenu_AddButton(info)
+        UIDropDownMenu_AddButton(info,level)
+    end
+    if level==1 then
+        AddChoice({"All items"})
+        for index,group in ipairs(filterGroups) do
+            local info=UIDropDownMenu_CreateInfo();info.text=group[1]
+            info.hasArrow=true;info.notCheckable=true;info.value=index
+            UIDropDownMenu_AddButton(info,level)
+        end
+    else
+        local group=filterGroups[UIDROPDOWNMENU_MENU_VALUE]
+        if group then for _,row in ipairs(group[2]) do AddChoice(row) end end
     end
 end)
-UIDropDownMenu_Initialize(slotDrop,function()
-    for _,definition in ipairs(slots) do
-        local row=definition
-        local info=UIDropDownMenu_CreateInfo();info.text=row[1]
-        info.func=function() slotFilter=row[2];UIDropDownMenu_SetText(slotDrop,row[1]);Invalidate();Render() end
-        UIDropDownMenu_AddButton(info)
-    end
-end)
-UIDropDownMenu_SetText(typeDrop,"All armor and weapons");UIDropDownMenu_SetText(slotDrop,"All slots")
+UIDropDownMenu_SetText(filter,"Filter: All items")
 local scroll=CreateFrame("ScrollFrame","ArcanaHeirloomScroll",panel,"FauxScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT",0,-83);scroll:SetPoint("BOTTOMRIGHT",-24,248)
+local listBackdrop=CreateFrame("Frame",nil,panel)
+listBackdrop:SetPoint("TOPLEFT",0,-81);listBackdrop:SetSize(556,198)
+listBackdrop:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=12,
+    insets={left=3,right=3,top=3,bottom=3}})
+listBackdrop:SetBackdropColor(0.03,0.03,0.03,0.92)
 local buttons={}
 for index=1,8 do
-    local button=Button("ArcanaHeirloomRow"..index,panel,"",0,-83-(index-1)*24,532,function(self)
+    local button=CreateFrame("Button","ArcanaHeirloomRow"..index,listBackdrop)
+    button:SetPoint("TOPLEFT",8,-3-(index-1)*24);button:SetSize(520,24)
+    button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    button.icon=button:CreateTexture(nil,"ARTWORK");button.icon:SetSize(18,18);button.icon:SetPoint("LEFT",1,0)
+    button.name=Label(button,"",26,-5,385,"GameFontHighlightSmall");button.name:SetHeight(16)
+    button.progress=button:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    button.progress:SetPoint("RIGHT",-5,0);button.progress:SetWidth(95);button.progress:SetJustifyH("RIGHT")
+    button:SetScript("OnClick",function(self)
         selected=selected~=self.entry and self.entry or nil;original=0;Invalidate();Render()
     end)
     button:SetScript("OnEnter",function(self)
@@ -101,15 +142,7 @@ for index=1,8 do
 end
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,24,Render) end)
 local title=Label(panel,"Select a heirloom to view its details.",0,-285,550,"GameFontNormalLarge")
-local origin=Button("ArcanaHeirloomOrigin",panel,"View drop sources",0,-313,170,function(self)
-    if not selected then return end
-    GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:ClearLines()
-    GameTooltip:AddLine(catalogue[selected].name,0.9,0.8,0.5)
-    for text in catalogue[selected].origin:gmatch("[^;]+") do GameTooltip:AddLine(text,1,1,1,true) end
-    GameTooltip:Show()
-end)
-origin:SetScript("OnLeave",function() GameTooltip:Hide() end)
-local stateLabel=Label(panel,"",188,-317,365)
+local stateLabel=Label(panel,"",0,-317,550)
 local material=CreateFrame("Frame","ArcanaHeirloomMaterial",panel,"UIDropDownMenuTemplate")
 material:SetPoint("TOPLEFT",-16,-349);UIDropDownMenu_SetWidth(material,270)
 local quantity=CreateFrame("EditBox","ArcanaHeirloomQuantity",panel,"InputBoxTemplate")
@@ -201,7 +234,12 @@ Render=function()
         if entry then
             local state=progress[entry]
             local suffix=state and (state.progress==100 and "Unlocked" or state.progress.."%") or "Preview"
-            button:SetText((selected==entry and "▼ " or "").."|cffe6cc80"..catalogue[entry].name.."|r  — "..suffix)
+            local _,_,_,_,_,_,_,_,_,texture=GetItemInfo(entry)
+            if not texture then _,_,_,_,_,_,_,_,_,texture=GetItemInfo(catalogue[entry].source) end
+            button.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+            button.name:SetText("|cffe6cc80"..catalogue[entry].name.."|r")
+            button.progress:SetText(suffix)
+            if selected==entry then button:LockHighlight() else button:UnlockHighlight() end
             button:Show()
         else button:Hide() end
     end
@@ -210,7 +248,8 @@ Render=function()
     title:SetText(item and item.name or "Select a heirloom to view its details.")
     stateLabel:SetText(state and (state.progress==100 and "Unlocked account-wide" or "Unlock progress: "..state.progress.."%") or
         (item and "Obtain an original to begin at 0%." or ""))
-    for _,control in ipairs({origin,stateLabel}) do if item then control:Show() else control:Hide() end end
+    if item then stateLabel:Show() else stateLabel:Hide() end
+    if itemClass or subclass or slotFilter then clearFilter:Enable() else clearFilter:Disable() end
     local progressingItem=state and state.progress<100
     for _,control in ipairs({material,quantity}) do if progressingItem then control:Show() else control:Hide() end end
     if progressingItem and source==5 then

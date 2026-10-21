@@ -100,8 +100,9 @@ function P.Filter(catalogue,progress,mode,query,itemClass,subclass,slot)
         local state=progress[entry]
         local visible=query~="" or (state and ((mode=="Unlocked")==(state.progress==100)))
         if visible and (query=="" or item.name:lower():find(query,1,true) or tostring(entry)==query or tostring(item.source)==query) and
-            (not itemClass or item.class==itemClass) and (not subclass or item.subclass==subclass) and
-            (not slot or item.slot==slot) then rows[#rows+1]=entry end
+            (not itemClass or item.class==itemClass) and (not subclass or item.subclass==subclass or
+                (subclass=="armor" and item.subclass>=1 and item.subclass<=4)) and
+            (not slot or item.slot==slot or (slot=="chest" and (item.slot==5 or item.slot==20))) then rows[#rows+1]=entry end
     end
     table.sort(rows,function(a,b)
         local x,y=catalogue[a].name:lower(),catalogue[b].name:lower()

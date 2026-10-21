@@ -11,6 +11,15 @@ assert(P.Filter(catalogue,progress,"Unlocked","")[1]==700002)
 assert(P.Filter(catalogue,progress,"Progressing","war")[1]==700003)
 assert(#P.Filter(catalogue,progress,"Progressing","",2)==0)
 assert(P.Filter(catalogue,progress,"Progressing","16905",4,2,5)[1]==700001)
+local armor={
+    [1]={name="Robe",source=1,class=4,subclass=1,slot=20},
+    [2]={name="Vest",source=2,class=4,subclass=2,slot=5},
+    [3]={name="Cloak",source=3,class=4,subclass=1,slot=16},
+}
+local discovered={[1]={progress=0},[2]={progress=0},[3]={progress=0}}
+assert(#P.Filter(armor,discovered,"Progressing","",4,"armor","chest")==2)
+assert(P.Filter(armor,discovered,"Progressing","",4,1,"chest")[1]==1)
+assert(P.Filter(armor,discovered,"Progressing","",4,nil,16)[1]==3)
 local a,b=P.Preview(0,0,2);assert(a==6 and b==10)
 a,b=P.Preview(99,0,100);assert(a==1 and b==1)
 assert(not P.Preview(100,0,1))

@@ -16,12 +16,16 @@ function methods:SetText(text)
     if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
 end
 function methods:GetText() return self.text or "" end
+function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
+function methods:SetTexture(value) self.texture=value end
+function methods:LockHighlight() self.highlight=true end
+function methods:UnlockHighlight() self.highlight=false end
 function methods:CreateFontString() return CreateFrame("Font",nil,self) end
-function CreateFrame(kind,name,parent)
-    local frame=setmetatable({kind=kind,name=name,parent=parent,scripts={}},{__index=function(_,key)
+function CreateFrame(kind,name,parent,template)
+    local frame=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={}},{__index=function(_,key)
         return methods[key] or (key:match("^[A-Z]") and function() end)
     end})
-    if name then frames[name]=frame end
+    if name then frames[name]=frame;_G[name]=frame end
     return frame
 end
 UIParent=CreateFrame("Frame")
@@ -36,6 +40,8 @@ function UIDropDownMenu_SetText(frame,text) frame.text=text end
 function UIDropDownMenu_CreateInfo() return {} end
 function UIDropDownMenu_AddButton(info) menus[#menus+1]=info end
 function FauxScrollFrame_Update() end
+function FauxScrollFrame_SetOffset(frame,offset) frame.offset=offset end
+function CloseDropDownMenus() end
 function FauxScrollFrame_GetOffset(frame) return frame.offset or 0 end
 function FauxScrollFrame_OnVerticalScroll(frame,offset,height,render) frame.offset=math.floor(offset/height);render() end
 function IsInInstance() return false,"none" end
@@ -132,4 +138,20 @@ tick();snapshot()
 frames.ArcanaHeirloomSearch:SetText("thunder");check(frames.ArcanaHeirloomRow1.entry==700002)
 click("ArcanaHeirloomRow1");check(not forge.enabled)
 dead=true;event("PLAYER_REGEN_ENABLED");check(not forge.enabled)
+check(not frames.ArcanaHeirloomOrigin and not frames.ArcanaHeirloomType and not frames.ArcanaHeirloomSlot)
+check(frames.ArcanaHeirloomRow1.template==nil and frames.ArcanaHeirloomRow1.icon.texture~=nil)
+check(frames.ArcanaHeirloomRow1.name.text:find("Thunderfury",1,true))
+check(frames.ArcanaHeirloomRow1.progress.text=="Preview")
+menus={};frames.ArcanaHeirloomFilter.initialize(nil,1);check(#menus==4)
+UIDROPDOWNMENU_MENU_VALUE=1
+menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);check(#menus==13)
+menus[3].func();check(frames.ArcanaHeirloomRow1.entry==nil)
+frames.ArcanaHeirloomSearch:SetText("");check(frames.ArcanaHeirloomRow1.entry==700001)
+check(frames.ArcanaHeirloomClearFilter.enabled)
+menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);menus[8].func()
+check(frames.ArcanaHeirloomFilter.text=="Filter: Leather / Chest" and frames.ArcanaHeirloomRow1.entry==700001)
+menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);menus[2].func()
+check(frames.ArcanaHeirloomFilter.text=="Filter: Cloth / Chest" and frames.ArcanaHeirloomRow1.entry==nil)
+frames.ArcanaHeirloomScroll.offset=99;click("ArcanaHeirloomClearFilter")
+check(frames.ArcanaHeirloomScroll.offset==0 and not frames.ArcanaHeirloomClearFilter.enabled)
 print("PASS "..checks.." heirloom UI confirmation, stale inventory, timeout, ambiguous receipt, spoof, discovery and filtering checks")
