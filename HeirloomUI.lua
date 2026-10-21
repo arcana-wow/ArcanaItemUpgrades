@@ -2,11 +2,13 @@ local host,P,catalogue=ArcanaItemUpgradesFrame,ArcanaHeirloomProtocol,ArcanaHeir
 if not host or not P or not catalogue then return end
 local progress,originals,filtered={},{},{}
 local selected,quote,pending,operation,snapshot,refreshAt
+local searchAt,searchQuery,gain,operationContext=nil,"",nil,nil
 local serial,lastRequest=0,-1
-local mode,source,original="Progressing",0,0
+local mode,source,original="Unlocked",0,0
 local itemClass,subclass,slotFilter,filterName
 local valid,reason=false,"Loading your account's heirlooms..."
 local Render,Sync,Invalidate
+local insufficient="You do not have the required item/currency."
 local panel=CreateFrame("Frame","ArcanaHeirloomPanel",host)
 panel:SetPoint("TOPLEFT",20,-120);panel:SetSize(560,520);panel:Hide()
 local function Label(parent,text,x,y,width,font)
@@ -26,6 +28,25 @@ local function Allowed()
     return not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and
         not UnitCastingInfo("player") and not UnitChannelInfo("player") and kind~="pvp" and kind~="arena"
 end
+local function OriginalRow(guid,family)
+    local row=valid and originals[guid]
+    local link=row and GetContainerItemLink(row.bag,row.slot)
+    if row and row.family==family and link and tonumber(link:match("item:(%d+)"))==row.entry then return row,link end
+end
+local function HasPayment(kind,family,paymentSource,count,guid)
+    if kind==2 then return true end
+    if not count or count<1 then return false end
+    if paymentSource==0 then return GetMoney()>=count*1000000 end
+    if paymentSource==5 then return count==1 and OriginalRow(guid,family)~=nil end
+    local definition=P.Materials[paymentSource+1]
+    return definition and definition.entry and GetItemCount(definition.entry,false)>=count
+end
+local function OriginalTooltip(owner,guid,family)
+    local row=OriginalRow(guid,family)
+    if not row then GameTooltip:Hide();return end
+    GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
+    GameTooltip:SetBagItem(row.bag,row.slot);GameTooltip:Show()
+end
 local function Key() return (GetRealmName() or "")..":"..UnitName("player") end
 local function SaveOperation(id)
     operation=id
@@ -43,28 +64,41 @@ local function ResetScroll()
     local frame=_G["ArcanaHeirloomScroll"]
     if frame then FauxScrollFrame_SetOffset(frame,0) end
 end
-local progressing=Button("ArcanaHeirloomProgressing",panel,"Progressing",0,0,125,function()
-    mode="Progressing";ResetScroll();Invalidate();Render()
-end)
-local unlocked=Button("ArcanaHeirloomUnlocked",panel,"Unlocked",130,0,125,function()
-    mode="Unlocked";ResetScroll();Invalidate();Render()
-end)
-local search=CreateFrame("EditBox","ArcanaHeirloomSearch",panel,"InputBoxTemplate")
-search:SetPoint("TOPLEFT",278,-2);search:SetSize(272,22);search:SetAutoFocus(false);search:SetMaxLetters(80)
-search:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
-search:SetScript("OnTextChanged",function() if Invalidate then ResetScroll();Invalidate();Render() end end)
-Label(panel,"Search all eligible heirlooms",278,-27,275,"GameFontHighlightSmall")
+local selectors={}
+for index,name in ipairs({"Unlocked","Completed","All"}) do
+    local choice=name
+    local button=CreateFrame("Button","ArcanaHeirloom"..name,panel)
+    button:SetPoint("TOPLEFT",78+(index-1)*135,0);button:SetSize(130,25)
+    button:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=10,
+        insets={left=3,right=3,top=3,bottom=3}})
+    button.label=Label(button,name,22,-5,104,"GameFontNormalSmall")
+    button.marker=button:CreateTexture(nil,"OVERLAY")
+    button.marker:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    button.marker:SetPoint("LEFT",3,0);button.marker:SetSize(18,18)
+    button:SetScript("OnClick",function()
+        mode=choice;ResetScroll();Invalidate();Render()
+    end)
+    selectors[name]=button
+end
 local filter=CreateFrame("Frame","ArcanaHeirloomFilter",panel,"UIDropDownMenuTemplate")
-filter:SetPoint("TOPLEFT",-16,-44);UIDropDownMenu_SetWidth(filter,240)
-local filterSummary=Label(panel,"All items",278,-53,210,"GameFontHighlightSmall")
+filter:SetPoint("TOPLEFT",-16,-33);UIDropDownMenu_SetWidth(filter,460)
+local search=CreateFrame("EditBox","ArcanaHeirloomSearch",panel,"InputBoxTemplate")
+search:SetPoint("TOPLEFT",5,-69);search:SetSize(543,22);search:SetAutoFocus(false);search:SetMaxLetters(80)
+search:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
+search:SetScript("OnTextChanged",function()
+    if Invalidate then
+        Invalidate();searchAt=GetTime()+0.25
+        if Render then Render() end
+    end
+end)
+local searchLabel=Label(panel,"",5,-94,545,"GameFontHighlightSmall")
 local function ChooseFilter(name,kind,sub,slot)
     filterName,itemClass,subclass,slotFilter=name,kind,sub,slot
     UIDropDownMenu_SetText(filter,"Filter: "..name)
-    filterSummary:SetText(name)
-    ResetScroll()
-    Invalidate();Render()
+    ResetScroll();Invalidate();Render()
 end
-local clearFilter=Button("ArcanaHeirloomClearFilter",panel,"Clear",490,-47,60,function()
+local clearFilter=Button("ArcanaHeirloomClearFilter",panel,"Clear",490,-36,60,function()
     ChooseFilter("All items")
 end)
 local filterGroups={
@@ -113,9 +147,9 @@ UIDropDownMenu_Initialize(filter,function(_,level)
 end)
 UIDropDownMenu_SetText(filter,"Filter: All items")
 local scroll=CreateFrame("ScrollFrame","ArcanaHeirloomScroll",panel,"FauxScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT",0,-83);scroll:SetPoint("BOTTOMRIGHT",-24,248)
+scroll:SetPoint("TOPLEFT",0,-116);scroll:SetSize(532,192)
 local listBackdrop=CreateFrame("Frame",nil,panel)
-listBackdrop:SetPoint("TOPLEFT",0,-81);listBackdrop:SetSize(556,198)
+listBackdrop:SetPoint("TOPLEFT",0,-114);listBackdrop:SetSize(556,198)
 listBackdrop:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=12,
     insets={left=3,right=3,top=3,bottom=3}})
@@ -142,7 +176,9 @@ for index=1,8 do
 end
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,24,Render) end)
 local title=Label(panel,"Select a heirloom to view its details.",0,-285,550,"GameFontNormalLarge")
-local stateLabel=Label(panel,"",0,-317,550)
+local stateLabel=Label(panel,"",0,-317,320)
+local gainLabel=Label(panel,"",325,-317,220,"GameFontHighlight")
+_G.ArcanaHeirloomGain=gainLabel
 local material=CreateFrame("Frame","ArcanaHeirloomMaterial",panel,"UIDropDownMenuTemplate")
 material:SetPoint("TOPLEFT",-16,-349);UIDropDownMenu_SetWidth(material,270)
 local quantity=CreateFrame("EditBox","ArcanaHeirloomQuantity",panel,"InputBoxTemplate")
@@ -150,12 +186,16 @@ quantity:SetPoint("TOPLEFT",332,-351);quantity:SetSize(58,22);quantity:SetNumeri
 quantity:SetMaxLetters(3);quantity:SetText("1")
 local singleQuantity=Label(panel,"1",332,-351,58)
 singleQuantity:Hide()
-Label(panel,"Amount",398,-356,100,"GameFontHighlightSmall")
+local amountLabel=Label(panel,"Amount",398,-356,100,"GameFontHighlightSmall")
 quantity:SetScript("OnTextChanged",function() if Invalidate then Invalidate();Render() end end)
 quantity:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
 local originalDrop=CreateFrame("Frame","ArcanaHeirloomOriginal",panel,"UIDropDownMenuTemplate")
 originalDrop:SetPoint("TOPLEFT",-16,-383);UIDropDownMenu_SetWidth(originalDrop,510)
 UIDropDownMenu_SetText(originalDrop,"Choose an original from your bags")
+local originalHover=CreateFrame("Frame","ArcanaHeirloomOriginalHover",originalDrop)
+originalHover:SetPoint("TOPLEFT",20,-5);originalHover:SetSize(482,22);originalHover:EnableMouse(true)
+originalHover:SetScript("OnEnter",function(self) OriginalTooltip(self,original,selected) end)
+originalHover:SetScript("OnLeave",function() GameTooltip:Hide() end)
 UIDropDownMenu_Initialize(material,function()
     for index,definition in ipairs(P.Materials) do
         local choice,name=index-1,definition.name
@@ -181,17 +221,34 @@ UIDropDownMenu_Initialize(originalDrop,function()
         local text=info.text
         info.func=function() original=choice;UIDropDownMenu_SetText(originalDrop,text);Invalidate();Render() end
         UIDropDownMenu_AddButton(info)
+        -- Blizzard reuses dropdown buttons across menus. Gate our hook by the
+        -- open menu and replace its row identity every time this menu is built.
+        local list=_G["DropDownList1"]
+        local button=list and _G["DropDownList1Button"..list.numButtons]
+        if button then
+            button.arcanaOriginal=choice
+            if not button.arcanaOriginalHook then
+                button.arcanaOriginalHook=true
+                button:HookScript("OnEnter",function(self)
+                    if UIDROPDOWNMENU_OPEN_MENU==originalDrop then OriginalTooltip(self,self.arcanaOriginal,selected) end
+                end)
+                button:HookScript("OnLeave",function()
+                    if UIDROPDOWNMENU_OPEN_MENU==originalDrop then GameTooltip:Hide() end
+                end)
+            end
+        end
     end
 end)
 local estimate=Label(panel,"",0,-421,550,"GameFontHighlightSmall")
+local spending=Label(panel,"",0,-439,550,"GameFontHighlightSmall")
 local forge=Button("ArcanaHeirloomForge",panel,"Forge",175,-456,200,function()
-    if not selected or pending or operation or not valid or not Allowed() then return end
+    if not selected or pending or operation or searchAt or not valid or not Allowed() then return end
     local state=progress[selected]
     if not state then return end
     local count=P.Number(quantity:GetText(),100)
     if state.progress==100 then
         Request("CONJURE",tostring(selected),{kind=2,family=selected,quantity=1,source=0,original=0})
-    elseif count and P.Preview(state.progress,source,count) and (source~=5 or originals[original]) then
+    elseif count and P.Preview(state.progress,source,count) and HasPayment(1,selected,source,count,original) then
         local chosen=source==5 and original or 0
         Request("QUOTE",table.concat({selected,source,count,chosen},"\t"),
             {kind=1,family=selected,quantity=count,source=source,original=chosen})
@@ -199,6 +256,7 @@ local forge=Button("ArcanaHeirloomForge",panel,"Forge",175,-456,200,function()
     Render()
 end)
 local status=Label(panel,"",0,-490,550,"GameFontHighlightSmall")
+_G.ArcanaHeirloomStatus=status
 local confirmation=CreateFrame("Frame","ArcanaHeirloomConfirmation",UIParent)
 confirmation:SetAllPoints(host);confirmation:SetFrameStrata("FULLSCREEN_DIALOG")
 confirmation:EnableMouse(true);confirmation:EnableKeyboard(true);confirmation:Hide()
@@ -208,14 +266,34 @@ dialog:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile
     tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
 dialog:SetBackdropColor(0.02,0.02,0.03,1)
 local question=Label(dialog,"",24,-24,462)
+local paymentLink=CreateFrame("Button","ArcanaHeirloomPaymentLink",dialog)
+paymentLink:SetPoint("TOPLEFT",24,-65);paymentLink:SetSize(462,38)
+paymentLink.label=Label(paymentLink,"",0,0,462)
+paymentLink:SetScript("OnEnter",function(self)
+    if not quote or quote.kind~=1 then return end
+    if quote.source==5 then OriginalTooltip(self,quote.original,quote.family)
+    elseif self.link then
+        GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetHyperlink(self.link);GameTooltip:Show()
+    end
+end)
+paymentLink:SetScript("OnLeave",function() GameTooltip:Hide() end)
+local details=Label(dialog,"",24,-116,462)
 local accept=Button("ArcanaHeirloomConfirmAccept",dialog,"Forge",35,-210,210,function()
-    if not quote or quote.expires<=GetTime() or pending or operation or not Allowed() then Invalidate();Render();return end
-    local id=quote.id;SaveOperation(id);Invalidate();Request("COMMIT",id);reason="Saving your heirloom...";Render()
+    if not quote or quote.expires<=GetTime() or pending or operation or not Allowed() or
+        not HasPayment(quote.kind,quote.family,quote.source,quote.quantity,quote.original) then
+        Invalidate();Render();return
+    end
+    local id=quote.id
+    operationContext={id=id,family=quote.family,progress=quote.progress}
+    ArcanaItemUpgradesDB=ArcanaItemUpgradesDB or {}
+    ArcanaItemUpgradesDB.heirloomPendingContext=ArcanaItemUpgradesDB.heirloomPendingContext or {}
+    ArcanaItemUpgradesDB.heirloomPendingContext[Key()]=operationContext
+    SaveOperation(id);Invalidate();Request("COMMIT",id);reason="Saving your heirloom...";Render()
 end)
 Button("ArcanaHeirloomConfirmCancel",dialog,CANCEL,265,-210,210,function() Invalidate();Render() end)
 confirmation:SetScript("OnKeyDown",function(_,key) if key=="ESCAPE" then Invalidate();Render() end end)
 Invalidate=function()
-    quote=nil;confirmation:Hide()
+    quote=nil;confirmation:Hide();GameTooltip:Hide()
     if pending and (pending.kind=="QUOTE" or pending.kind=="CONJURE") then pending=nil end
 end
 Sync=function()
@@ -225,18 +303,29 @@ Sync=function()
     Render()
 end
 Render=function()
-    if mode=="Progressing" then progressing:Disable();unlocked:Enable() else progressing:Enable();unlocked:Disable() end
-    filtered=P.Filter(catalogue,progress,mode,search:GetText(),itemClass,subclass,slotFilter)
-    FauxScrollFrame_Update(scroll,#filtered,8,24)
+    for name,button in pairs(selectors) do
+        local active=name==mode
+        button:SetBackdropColor(active and 0.30 or 0.04,active and 0.22 or 0.04,0.04,1)
+        button:SetBackdropBorderColor(active and 1 or 0.35,active and 0.82 or 0.35,active and 0.2 or 0.35,1)
+        button.label:SetTextColor(1,active and 0.82 or 1,active and 0.2 or 1)
+        if active then button.marker:Show() else button.marker:Hide() end
+    end
+    searchLabel:SetText("Search all "..(mode=="All" and "eligible" or mode:lower()).." heirlooms")
+    filtered=P.Filter(catalogue,progress,mode,searchQuery,itemClass,subclass,slotFilter)
+    local visibleSelection=false
+    for _,entry in ipairs(filtered) do if entry==selected then visibleSelection=true;break end end
+    if selected and not visibleSelection then selected=nil;original=0;Invalidate() end
+    local rowCount=math.max(3,math.min(8,#filtered))
+    listBackdrop:SetHeight(rowCount*24+6);scroll:SetHeight(rowCount*24)
+    FauxScrollFrame_Update(scroll,#filtered,rowCount,24)
     local offset=FauxScrollFrame_GetOffset(scroll)
     for index,button in ipairs(buttons) do
-        local entry=filtered[index+offset];button.entry=entry
+        local entry=index<=rowCount and filtered[index+offset] or nil;button.entry=entry
         if entry then
             local state=progress[entry]
-            local suffix=state and (state.progress==100 and "Unlocked" or state.progress.."%") or "Preview"
-            local _,_,_,_,_,_,_,_,_,texture=GetItemInfo(entry)
-            if not texture then _,_,_,_,_,_,_,_,_,texture=GetItemInfo(catalogue[entry].source) end
-            button.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+            local suffix=state and (state.progress==100 and "Completed" or state.progress.."%") or "Preview"
+            local icon=catalogue[entry].icon
+            button.icon:SetTexture(icon and ("Interface\\Icons\\"..icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
             button.name:SetText("|cffe6cc80"..catalogue[entry].name.."|r")
             button.progress:SetText(suffix)
             if selected==entry then button:LockHighlight() else button:UnlockHighlight() end
@@ -246,12 +335,12 @@ Render=function()
     local item=selected and catalogue[selected]
     local state=item and progress[selected]
     title:SetText(item and item.name or "Select a heirloom to view its details.")
-    stateLabel:SetText(state and (state.progress==100 and "Unlocked account-wide" or "Unlock progress: "..state.progress.."%") or
+    stateLabel:SetText(state and ("Unlock progress: "..state.progress.."%") or
         (item and "Obtain an original to begin at 0%." or ""))
     if item then stateLabel:Show() else stateLabel:Hide() end
     if itemClass or subclass or slotFilter then clearFilter:Enable() else clearFilter:Disable() end
     local progressingItem=state and state.progress<100
-    for _,control in ipairs({material,quantity}) do if progressingItem then control:Show() else control:Hide() end end
+    for _,control in ipairs({material,quantity,amountLabel}) do if progressingItem then control:Show() else control:Hide() end end
     if progressingItem and source==5 then
         originalDrop:Show();quantity:ClearFocus();quantity:Hide();singleQuantity:Show()
     else
@@ -261,14 +350,35 @@ Render=function()
     local count=P.Number(quantity:GetText(),100)
     local low,high
     if progressingItem and count then low,high=P.Preview(state.progress,source,count) end
-    estimate:SetText(low and ("Potential progress: +"..low.."–"..high.."%."..
-        (source==5 and " The selected original will be destroyed." or " Unused materials remain when you reach 100%.")) or
-        (state and state.progress==100 and "Conjure a permanent, unique copy for this character. Free." or ""))
+    estimate:SetText(low and ("Potential progress: +"..low.."–"..high.."%") or
+        (state and state.progress==100 and "Conjure a permanent account-bound copy. Free." or ""))
+    spending:SetText(low and (source==5 and "The selected original item will be destroyed." or
+        "Spending stops at 100%. Remaining selected materials or gold are kept.") or "")
     forge:SetText(state and state.progress==100 and "Conjure" or "Forge")
-    local can=state and valid and not pending and not operation and Allowed() and
+    local paid=state and HasPayment(state.progress==100 and 2 or 1,selected,source,count,original)
+    local missing=progressingItem and low and not paid
+    local can=state and paid and valid and not pending and not operation and not searchAt and Allowed() and
         (state.progress==100 or (low and (source~=5 or originals[original] and originals[original].family==selected)))
     if can then forge:Enable() else forge:Disable() end
-    status:SetText(reason)
+    if state then forge:Show() else forge:Hide() end
+    gainLabel:SetText(gain and gain.family==selected and GetTime()<gain.expires and ("+"..gain.amount.."%") or "")
+    gainLabel:SetTextColor(0.1,1,0.1)
+    local function At(control,x,y)
+        control:ClearAllPoints();control:SetPoint("TOPLEFT",x,-y)
+    end
+    local y=114+rowCount*24+16
+    At(title,0,y);At(stateLabel,0,y+27);At(gainLabel,205,y+27)
+    y=y+55
+    At(material,-16,y);At(quantity,332,y+2);At(singleQuantity,332,y+2);At(amountLabel,398,y+7)
+    if progressingItem then y=y+35 end
+    if progressingItem and source==5 then At(originalDrop,-16,y);y=y+34 end
+    At(estimate,0,y);At(spending,0,y+18)
+    if state then y=y+(progressingItem and 46 or 28);At(forge,175,y);y=y+31 end
+    At(status,0,y+3)
+    panel:SetHeight(y+25)
+    if Active() then host:SetHeight(120+y+42) end
+    status:SetText(missing and insufficient or reason)
+    if missing or reason==insufficient then status:SetTextColor(1,0.15,0.15) else status:SetTextColor(1,1,1) end
 end
 function host:RenderHeirlooms() Render() end
 function host:RefreshHeirlooms() Sync() end
@@ -278,17 +388,23 @@ function host:HeirloomTabChanged(tab)
 end
 local events=CreateFrame("Frame","ArcanaHeirloomEvents")
 for _,event in ipairs({"CHAT_MSG_ADDON","PLAYER_ENTERING_WORLD","PLAYER_LOGOUT","BAG_UPDATE",
-    "PLAYER_EQUIPMENT_CHANGED","PLAYER_LEVEL_UP","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED"}) do events:RegisterEvent(event) end
+    "PLAYER_EQUIPMENT_CHANGED","PLAYER_LEVEL_UP","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED","PLAYER_MONEY"}) do events:RegisterEvent(event) end
 events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
     if event=="CHAT_MSG_ADDON" then
         if prefix~="ARHL" or channel~="WHISPER" or sender~=UnitName("player") then return end
         local fields=P.Split(message)
-        if fields[1]=="CHANGED" then if Active() then refreshAt=GetTime()+0.7 end;return end
+        if fields[1]=="CHANGED" then
+            -- A discovery emitted while servicing this snapshot is already in
+            -- its rows. Do not immediately fetch that same collection again.
+            if Active() and not (pending and pending.kind=="SYNC") then refreshAt=GetTime()+0.7 end
+            return
+        end
         if not pending or tonumber(fields[2])~=pending.request then return end
         if fields[1]=="BEGIN" and pending.kind=="SYNC" then
-            snapshot=P.Begin(fields,pending.request)
+            snapshot=P.Begin(fields,pending.request);return
         elseif fields[1]=="ROW" or fields[1]=="ORIGINAL" then
             if not P.Append(snapshot,fields,catalogue) then snapshot=nil end
+            return -- Stage the snapshot atomically; render once at END, not once per row.
         elseif fields[1]=="END" and pending.kind=="SYNC" then
             if P.Complete(snapshot,fields) then
                 progress,originals=snapshot.rows,snapshot.originals;valid=true;reason=""
@@ -298,14 +414,42 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
             quote=P.Quote(fields,pending.selection,GetTime());pending=nil
             if quote and selected==quote.family and Active() and Allowed() then
                 local name=catalogue[quote.family].name
-                local cost=quote.source==5 and "Permanently destroy the selected original item" or
-                    ("Use up to "..quote.quantity.." × "..P.Materials[quote.source+1].name)
-                question:SetText(quote.kind==2 and ("Conjure "..name.."?\n\nFree, permanent and unique to this character.") or
-                    (name.."\n\n"..cost..".\n\nGain "..quote.minimum.."–"..quote.maximum..
-                    "% unlock progress.\nUnused units remain when the heirloom reaches 100%."))
+                question:SetText(name)
+                paymentLink.link=nil
+                if quote.kind==2 then
+                    paymentLink:Hide();details:SetText("Conjure a free, permanent copy bound to your account?")
+                else
+                    local cost
+                    if quote.source==5 then
+                        local _,link=OriginalRow(quote.original,quote.family)
+                        cost="Destroy "..(link or "the selected original item")
+                    elseif quote.source==0 then cost="Use up to "..(quote.quantity*100).." gold"
+                    else
+                        local definition=P.Materials[quote.source+1]
+                        local _,link=GetItemInfo(definition.entry)
+                        link=link or ("|cffffffff|Hitem:"..definition.entry..":0:0:0:0:0:0:0|h["..definition.name.."]|h|r")
+                        paymentLink.link=link;cost="Use up to "..quote.quantity.." × "..link
+                    end
+                    paymentLink.label:SetText(cost);paymentLink:Show()
+                    details:SetText("Gain "..quote.minimum.."–"..quote.maximum.."% unlock progress.\n\n"..
+                        (quote.source==5 and "The selected original item will be destroyed." or
+                        "Spending stops at 100%. Remaining selected materials or gold are kept."))
+                end
                 accept:SetText(quote.kind==2 and "Conjure" or "Forge");confirmation:Show()
             else Invalidate();reason="The confirmation changed. Please try again." end
         elseif P.Done(fields,catalogue) and (pending.kind=="COMMIT" or pending.kind=="STATUS") then
+            local receipt=P.Done(fields,catalogue)
+            if receipt.kind==1 and operationContext and operationContext.id==operation and
+                operationContext.family==receipt.family and receipt.progress>operationContext.progress then
+                gain={family=receipt.family,amount=receipt.progress-operationContext.progress,expires=GetTime()+4}
+            end
+            if receipt.kind==1 then
+                local previous=progress[receipt.family]
+                progress[receipt.family]={progress=receipt.progress,version=previous and previous.version or 0}
+                if receipt.progress==100 and selected==receipt.family and mode=="Unlocked" then mode="Completed" end
+            end
+            operationContext=nil
+            if ArcanaItemUpgradesDB.heirloomPendingContext then ArcanaItemUpgradesDB.heirloomPendingContext[Key()]=nil end
             SaveOperation(nil);pending=nil;valid=false;Invalidate();reason="Heirloom saved.";refreshAt=GetTime()+0.65
         elseif fields[1]=="MISSING" and #fields==2 and pending.kind=="STATUS" then
             SaveOperation(nil);pending=nil;valid=false;reason="No payment was saved. You can request a new confirmation."
@@ -318,10 +462,14 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
         Render();return
     end
     Invalidate()
+    if event=="PLAYER_MONEY" then Render();return end
     if event=="PLAYER_ENTERING_WORLD" then
         progress,originals={},{};valid=false;pending=nil
         operation=ArcanaItemUpgradesDB and ArcanaItemUpgradesDB.heirloomPending and ArcanaItemUpgradesDB.heirloomPending[Key()]
-        if not P.Id(operation) then operation=nil end
+        operationContext=ArcanaItemUpgradesDB and ArcanaItemUpgradesDB.heirloomPendingContext and ArcanaItemUpgradesDB.heirloomPendingContext[Key()]
+        if type(operationContext)~="table" or operationContext.id~=operation or
+            type(operationContext.progress)~="number" or operationContext.progress<0 or operationContext.progress>100 then operationContext=nil end
+        if not P.Id(operation) then operation=nil;operationContext=nil end
     elseif event=="PLAYER_LOGOUT" then pending=nil;return
     elseif event=="BAG_UPDATE" or event=="PLAYER_EQUIPMENT_CHANGED" then valid=false end
     if Active() or operation then refreshAt=GetTime()+0.7 end
@@ -329,6 +477,10 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
 end)
 events:SetScript("OnUpdate",function()
     local now=GetTime()
+    if searchAt and now>=searchAt then
+        searchAt=nil;searchQuery=search:GetText();ResetScroll();Invalidate();Render()
+    end
+    if gain and now>=gain.expires then gain=nil;Render() end
     if quote and now>=quote.expires then Invalidate();reason="Confirmation expired.";Render() end
     if pending and now>=pending.deadline then
         pending=nil;Invalidate();valid=false;reason="No response from the realm. Refresh to check again."

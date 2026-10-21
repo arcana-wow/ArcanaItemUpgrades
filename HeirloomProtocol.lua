@@ -90,23 +90,39 @@ function P.Done(fields,catalogue)
         P.Number(fields[5],100),P.Number(fields[6],100),P.Number(fields[7],4294967295)
     if not kind or kind<1 or not family or not catalogue[family] or
         not progress or not consumed or not item then return false end
-    return (kind==1 and consumed>0 and progress>0 and item==0) or
-        (kind==2 and consumed==0 and progress==100 and item>0)
+    if (kind==1 and consumed>0 and progress>0 and item==0) or
+        (kind==2 and consumed==0 and progress==100 and item>0) then
+        return {kind=kind,family=family,progress=progress,consumed=consumed,item=item}
+    end
+    return false
+end
+local indexes=setmetatable({},{__mode="k"})
+local function SearchIndex(catalogue)
+    if indexes[catalogue] then return indexes[catalogue] end
+    local index={}
+    for entry,item in pairs(catalogue) do
+        index[#index+1]={entry=entry,name=item.name:lower(),item=item}
+    end
+    table.sort(index,function(a,b) return a.name==b.name and a.entry<b.entry or a.name<b.name end)
+    indexes[catalogue]=index
+    return index
 end
 function P.Filter(catalogue,progress,mode,query,itemClass,subclass,slot)
     query=(query or ""):lower():match("^%s*(.-)%s*$")
     local rows={}
-    for entry,item in pairs(catalogue) do
+    for _,indexed in ipairs(SearchIndex(catalogue)) do
+        local entry,item=indexed.entry,indexed.item
         local state=progress[entry]
-        local visible=query~="" or (state and ((mode=="Unlocked")==(state.progress==100)))
-        if visible and (query=="" or item.name:lower():find(query,1,true) or tostring(entry)==query or tostring(item.source)==query) and
+        local visible=mode=="All" or state and ((mode=="Completed" and state.progress==100) or
+            (mode=="Unlocked" and state.progress<100))
+        local matches=query=="" or indexed.name:find(query,1,true) or tostring(entry)==query or tostring(item.source)==query
+        if not matches then
+            for _,alias in ipairs(item.aliases or {}) do if tostring(alias)==query then matches=true;break end end
+        end
+        if visible and matches and
             (not itemClass or item.class==itemClass) and (not subclass or item.subclass==subclass or
                 (subclass=="armor" and item.subclass>=1 and item.subclass<=4)) and
             (not slot or item.slot==slot or (slot=="chest" and (item.slot==5 or item.slot==20))) then rows[#rows+1]=entry end
     end
-    table.sort(rows,function(a,b)
-        local x,y=catalogue[a].name:lower(),catalogue[b].name:lower()
-        return x==y and a<b or x<y
-    end)
     return rows
 end

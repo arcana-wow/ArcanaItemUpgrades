@@ -1,18 +1,27 @@
 # ArcanaItemUpgrades
 
-## Heirlooms (1.15.2)
+## Heirlooms (1.17.0)
 
-The Heirloom tab tracks account-wide Progressing and Unlocked collections.
-Search includes undiscovered items and previews the heirloom at your current
-level. Armor/weapon and slot filters narrow the list. Select an item to view
-its raid source, unlock progress and Forge payment options.
+The compact Heirloom tab offers clearly selected **Unlocked** (discovered,
+0–99%), **Completed** (100%) and **All** collections. Search sits below the
+armor/weapon/slot filter and stays scoped to the selected collection. Names and
+original/family IDs match literally without case sensitivity; typing is debounced
+locally and sends no database request. Snapshot rows are staged and rendered once
+at completion. Native icons are available without warming the item cache.
 
-Receiving an eligible original discovers it at 0% without destroying it.
-Forge accepts gold, Triumph, Frost, Wintergrasp Marks, Dogtags or a matching
-original, with quantity/range preview and confirmation. At 100%, any character
-on the account can conjure a permanent Unique copy for free. The server checks
-bank ownership, inventory changes and durable receipts before completing a
-request. Copies cannot be recycled, sold, disenchanted or traded.
+Normal/heroic versions and tier variants share a single family. Receiving an
+eligible original discovers it at 0% without destroying it. Forge accepts gold,
+Triumph, Frost, Wintergrasp Marks, Dogtags or a matching original. Hover the
+original picker or chosen copy for its actual bag tooltip. Confirmations show
+hoverable payment links. Insufficient carried payment disables Forge and displays
+red guidance. The server revalidates payment and exact original identity.
+Spending stops at completion, retaining unused selected units; the last consumed
+unit is charged in full. Green progress feedback uses the committed receipt.
+
+At 100%, any account character can conjure permanent account-bound copies for
+free. Spare copies are allowed; Unique-Equipped follows the original item.
+Same-account mail is allowed. Copies cannot be recycled, sold, disenchanted or
+traded. Durable receipts reconcile missed replies without duplicate charges.
 
 Custom stats, procs and set tooltips follow levels 1–80. Heirloom set bonuses
 count only distinct pieces from the same heirloom set. Both heirloom Warglaives

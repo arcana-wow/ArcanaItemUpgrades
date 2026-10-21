@@ -8,7 +8,7 @@ local explanations = {
     Affixes = "Reroll an item's bonus stat using a Recalibration Sigil.",
     Ascension = "Ascend your equipment using the appropriate Ascension token. Requires level 80.",
     Recycle = "Recycle exactly 10 carried items of ilvl 187 or higher. Requires level 80.",
-    Heirloom = "Unlock raid heirlooms for your account, then conjure permanent copies for your characters.",
+    Heirloom = "Unlock raid heirlooms for your account",
 }
 local function TokenItemLink(token)
     local color=token==194704 and "ffff8000" or "ffa335ee"
@@ -109,7 +109,7 @@ local function Available(row)
         not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and allowedLocation and not paying and not pending
 end
 function frame:ApplyServiceVisibility()
-    self:SetHeight(self.serviceTab=="Heirloom" and 680 or self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
+    self:SetHeight(self.serviceTab=="Heirloom" and 530 or self.serviceTab=="Recycle" and 550 or self.serviceTab=="Ascension" and 640 or self.serviceTab=="Affixes" and 558 or 532)
     for _,control in ipairs(self.EquipmentControls or {}) do
         if self.serviceTab=="Recycle" or self.serviceTab=="Heirloom" then control:Hide() else control:Show() end
     end

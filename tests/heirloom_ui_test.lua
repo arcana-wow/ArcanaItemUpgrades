@@ -1,5 +1,6 @@
 local frames,sent,menus={},{},{}
 local now,combat,dead,level=1,false,false,30
+local money,materials,bagLink=100000000,100,"item:16905:123:456"
 local methods={}
 function methods:SetScript(event,fn) self.scripts[event]=fn end
 function methods:HookScript(event,fn)
@@ -17,7 +18,12 @@ function methods:SetText(text)
 end
 function methods:GetText() return self.text or "" end
 function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
+function methods:SetHeight(value) self.height=value;self.resizes=(self.resizes or 0)+1 end
+function methods:SetPoint(...) self.point={...} end
 function methods:SetTexture(value) self.texture=value end
+function methods:SetTextColor(...) self.color={...} end
+function methods:SetBagItem(bag,slot) self.bag,self.slot=bag,slot end
+function methods:SetHyperlink(link) self.link=link end
 function methods:LockHighlight() self.highlight=true end
 function methods:UnlockHighlight() self.highlight=false end
 function methods:CreateFontString() return CreateFrame("Font",nil,self) end
@@ -38,7 +44,13 @@ function UIDropDownMenu_Initialize(frame,fn) frame.initialize=fn end
 function UIDropDownMenu_SetWidth() end
 function UIDropDownMenu_SetText(frame,text) frame.text=text end
 function UIDropDownMenu_CreateInfo() return {} end
-function UIDropDownMenu_AddButton(info) menus[#menus+1]=info end
+function UIDropDownMenu_AddButton(info)
+    menus[#menus+1]=info
+    DropDownList1=DropDownList1 or CreateFrame("Frame","DropDownList1")
+    DropDownList1.numButtons=#menus
+    local name="DropDownList1Button"..#menus
+    _G[name]=_G[name] or CreateFrame("Button",name,DropDownList1)
+end
 function FauxScrollFrame_Update() end
 function FauxScrollFrame_SetOffset(frame,offset) frame.offset=offset end
 function CloseDropDownMenus() end
@@ -53,15 +65,17 @@ function UnitLevel() return level end
 function UnitName() return "Tester" end
 function GetRealmName() return "Test" end
 function GetTime() return now end
-function GetItemInfo(entry) return "Item "..entry end
-function GetContainerItemLink() return "item:16905" end
+function GetItemInfo(entry) return "Item "..entry,"|cffffffff|Hitem:"..entry..":0:0:0:0:0:0:0|h[Item "..entry.."]|h|r" end
+function GetContainerItemLink() return bagLink end
+function GetMoney() return money end
+function GetItemCount(_,bank) assert(bank==false);return materials end
 function SendAddonMessage(prefix,message,channel,target)
     assert(prefix=="ARHL" and channel=="WHISPER" and target=="Tester")
     sent[#sent+1]=message
 end
 ArcanaHeirloomCatalogue={
-    [700001]={name="Bloodfang Chestpiece",source=16905,class=4,subclass=2,slot=5,tier="Tier 2",origin="Blackwing Lair: Nefarian"},
-    [700002]={name="Thunderfury",source=19019,class=2,subclass=7,slot=21,tier="",origin="Molten Core: Bindings"},
+    [700001]={name="Bloodfang Chestpiece",source=16905,class=4,subclass=2,slot=5,tier="Tier 2",origin="Blackwing Lair: Nefarian",icon="INV_Chest_Leather_01"},
+    [700002]={name="Thunderfury",source=19019,class=2,subclass=7,slot=21,tier="",origin="Molten Core: Bindings",icon="INV_Sword_39"},
 }
 dofile("HeirloomProtocol.lua");dofile("HeirloomUI.lua")
 local P=ArcanaHeirloomProtocol
@@ -115,7 +129,11 @@ receive("DONE\t"..req[2].."\t1\t700001\t6\t2\t0","Spoofed")
 check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
 receive("DONE\t"..req[2].."\t1\t700001\t6\t2\t0")
 check(not ArcanaItemUpgradesDB.heirloomPending["Test:Tester"])
-tick();snapshot(100);click("ArcanaHeirloomUnlocked")
+check(ArcanaHeirloomGain.text=="+6%")
+receive("DONE\t"..req[2].."\t1\t700001\t6\t2\t0")
+check(ArcanaHeirloomGain.text=="+6%")
+tick(4.1);check(ArcanaHeirloomGain.text=="")
+snapshot(100);click("ArcanaHeirloomCompleted");click("ArcanaHeirloomRow1")
 check(forge.text=="Conjure" and forge.enabled)
 click("ArcanaHeirloomForge");req=request();check(req[1]=="CONJURE")
 receive("QUOTE\t"..req[2].."\t"..id.."\t2\t700001\t100\t0\t0\t1\t0\t0\t30")
@@ -125,7 +143,7 @@ receive("ERROR\t"..req[2].."\tMake room in your bags before conjuring.")
 check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
 tick(2);req=request();check(req[1]=="STATUS")
 receive("MISSING\t"..req[2]);check(not ArcanaItemUpgradesDB.heirloomPending["Test:Tester"])
-tick();snapshot(0);click("ArcanaHeirloomProgressing")
+tick();snapshot(0);click("ArcanaHeirloomUnlocked");click("ArcanaHeirloomRow1")
 menus={};frames.ArcanaHeirloomMaterial.initialize();menus[6].func()
 check(frames.ArcanaHeirloomQuantity:GetText()=="1" and not forge.enabled)
 menus={};frames.ArcanaHeirloomOriginal.initialize();check(#menus==1);menus[1].func()
@@ -135,7 +153,7 @@ receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t20\t20\t1\t5\t42\t30")
 check(confirmation:IsShown())
 event("BAG_UPDATE");check(not confirmation:IsShown() and not forge.enabled)
 tick();snapshot()
-frames.ArcanaHeirloomSearch:SetText("thunder");check(frames.ArcanaHeirloomRow1.entry==700002)
+click("ArcanaHeirloomAll");frames.ArcanaHeirloomSearch:SetText("thunder");tick(0.3);check(frames.ArcanaHeirloomRow1.entry==700002)
 click("ArcanaHeirloomRow1");check(not forge.enabled)
 dead=true;event("PLAYER_REGEN_ENABLED");check(not forge.enabled)
 check(not frames.ArcanaHeirloomOrigin and not frames.ArcanaHeirloomType and not frames.ArcanaHeirloomSlot)
@@ -146,7 +164,7 @@ menus={};frames.ArcanaHeirloomFilter.initialize(nil,1);check(#menus==4)
 UIDROPDOWNMENU_MENU_VALUE=1
 menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);check(#menus==13)
 menus[3].func();check(frames.ArcanaHeirloomRow1.entry==nil)
-frames.ArcanaHeirloomSearch:SetText("");check(frames.ArcanaHeirloomRow1.entry==700001)
+frames.ArcanaHeirloomSearch:SetText("");tick(0.3);check(frames.ArcanaHeirloomRow1.entry==700001)
 check(frames.ArcanaHeirloomClearFilter.enabled)
 menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);menus[8].func()
 check(frames.ArcanaHeirloomFilter.text=="Filter: Leather / Chest" and frames.ArcanaHeirloomRow1.entry==700001)
@@ -154,4 +172,70 @@ menus={};frames.ArcanaHeirloomFilter.initialize(nil,2);menus[2].func()
 check(frames.ArcanaHeirloomFilter.text=="Filter: Cloth / Chest" and frames.ArcanaHeirloomRow1.entry==nil)
 frames.ArcanaHeirloomScroll.offset=99;click("ArcanaHeirloomClearFilter")
 check(frames.ArcanaHeirloomScroll.offset==0 and not frames.ArcanaHeirloomClearFilter.enabled)
+-- Search is debounced, local, literal and scoped to the selected collection.
+click("ArcanaHeirloomUnlocked");dead=false
+tick(1);snapshot()
+menus={};frames.ArcanaHeirloomMaterial.initialize();menus[1].func()
+frames.ArcanaHeirloomSearch:SetText("");tick(0.3)
+click("ArcanaHeirloomRow1");check(forge.enabled)
+local requestsBefore=#sent
+frames.ArcanaHeirloomSearch:SetText("t")
+frames.ArcanaHeirloomSearch:SetText("thunder")
+check(not forge.enabled and frames.ArcanaHeirloomRow1.entry==700001)
+tick(0.2);check(frames.ArcanaHeirloomRow1.entry==700001)
+tick(0.1);check(frames.ArcanaHeirloomRow1.entry==nil and not forge:IsShown())
+check(#sent==requestsBefore)
+check(frames.ArcanaHeirloomUnlocked.marker:IsShown())
+check(not frames.ArcanaHeirloomCompleted.marker:IsShown() and not frames.ArcanaHeirloomAll.marker:IsShown())
+click("ArcanaHeirloomAll");check(frames.ArcanaHeirloomRow1.entry==700002)
+check(frames.ArcanaHeirloomRow1.icon.texture=="Interface\\Icons\\INV_Sword_39")
+check(frames.ArcanaHeirloomAll.marker:IsShown() and not frames.ArcanaHeirloomUnlocked.marker:IsShown())
+check(frames.ArcanaHeirloomSearch.point[3]<frames.ArcanaHeirloomFilter.point[3])
+check(host.height<532)
+-- Payment is checked before quoting and again at confirmation; money updates
+-- never trigger a database refresh. Bag changes invalidate exact-copy identity.
+frames.ArcanaHeirloomSearch:SetText("");tick(0.3)
+click("ArcanaHeirloomUnlocked");click("ArcanaHeirloomRow1")
+frames.ArcanaHeirloomQuantity:SetText("2")
+local beforeMoney=#sent
+money=1999999;event("PLAYER_MONEY")
+check(not forge.enabled and ArcanaHeirloomStatus.text=="You do not have the required item/currency.")
+check(ArcanaHeirloomStatus.color[1]==1 and ArcanaHeirloomStatus.color[2]<0.2)
+click("ArcanaHeirloomForge");check(#sent==beforeMoney)
+money=2000000;event("PLAYER_MONEY");check(forge.enabled and #sent==beforeMoney)
+quote();money=0;click("ArcanaHeirloomConfirmAccept")
+check(not confirmation:IsShown() and request()[1]=="QUOTE" and not forge.enabled)
+money=100000000;event("PLAYER_MONEY")
+menus={};frames.ArcanaHeirloomMaterial.initialize();menus[2].func()
+materials=1;event("BAG_UPDATE");tick();snapshot();check(not forge.enabled)
+materials=2;event("BAG_UPDATE");tick();snapshot();check(forge.enabled)
+click("ArcanaHeirloomForge");req=request()
+receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t2\t6\t2\t1\t0\t30")
+check(confirmation:IsShown() and frames.ArcanaHeirloomPaymentLink.label.text:find("|Hitem:47241:",1,true))
+frames.ArcanaHeirloomPaymentLink.scripts.OnEnter(frames.ArcanaHeirloomPaymentLink)
+check(GameTooltip.link:find("|Hitem:47241:",1,true))
+click("ArcanaHeirloomConfirmCancel")
+menus={};frames.ArcanaHeirloomMaterial.initialize();menus[6].func()
+menus={};frames.ArcanaHeirloomOriginal.initialize();menus[1].func()
+UIDROPDOWNMENU_OPEN_MENU=frames.ArcanaHeirloomOriginal
+DropDownList1Button1.scripts.OnEnter(DropDownList1Button1)
+check(GameTooltip.bag==0 and GameTooltip.slot==1)
+GameTooltip.bag=nil;UIDROPDOWNMENU_OPEN_MENU=frames.ArcanaHeirloomFilter
+DropDownList1Button1.scripts.OnEnter(DropDownList1Button1);check(GameTooltip.bag==nil)
+frames.ArcanaHeirloomOriginalHover.scripts.OnEnter(frames.ArcanaHeirloomOriginalHover)
+check(GameTooltip.bag==0 and GameTooltip.slot==1)
+bagLink="item:999";event("BAG_UPDATE")
+GameTooltip:Show();frames.ArcanaHeirloomOriginalHover.scripts.OnEnter(frames.ArcanaHeirloomOriginalHover)
+check(not GameTooltip:IsShown() and not forge.enabled)
+-- A collection packet burst redraws once, and its discovery notification
+-- does not schedule an unnecessary second database snapshot.
+bagLink="item:16905";tick();snapshot();tick(1)
+host:RefreshHeirlooms();req=request();local beforeRows=host.resizes
+receive("BEGIN\t"..req[2].."\t1\t200")
+receive("CHANGED\t0\t700001")
+receive("ROW\t"..req[2].."\t700001\t20\t3")
+for guid=1,200 do receive("ORIGINAL\t"..req[2].."\t700001\t"..guid.."\t0\t1\t16905") end
+check(host.resizes==beforeRows)
+receive("END\t"..req[2]);check(host.resizes==beforeRows+1)
+local afterSnapshot=#sent;tick(1);check(#sent==afterSnapshot)
 print("PASS "..checks.." heirloom UI confirmation, stale inventory, timeout, ambiguous receipt, spoof, discovery and filtering checks")
