@@ -425,3 +425,12 @@ Tempering, affix rerolls and Ascension are available inside dungeons and raids
 while alive and out of combat. Server checks still enforce ownership, costs,
 eligibility and transaction safety. Arena and battleground access is blocked.
 Recycling keeps its existing location restrictions.
+
+### 1.16.0 — heirloom browsing
+
+Heirlooms use compact icon/name/status rows with a selection highlight, matching
+the other upgrade lists. One grouped Filter menu covers armor, weapons and
+accessories; its active selection and Clear button are visible beside it.
+Progressing/Unlocked and search previews remain available. The separate drop
+sources section has been removed. Forge quotes, confirmations and account
+progression use the unchanged authoritative server protocol.
