@@ -56,7 +56,7 @@ local function SaveOperation(id)
 end
 local function Request(kind,extra,selection)
     serial=serial%2147483647+1;lastRequest=GetTime()
-    pending={request=serial,kind=kind,deadline=GetTime()+7,selection=selection}
+    pending={request=serial,kind=kind,deadline=GetTime()+12,selection=selection}
     if selection then selection.request=serial end
     SendAddonMessage("ARHL",kind.."\t"..serial..(extra and "\t"..extra or ""),"WHISPER",UnitName("player"))
 end
@@ -261,14 +261,20 @@ local confirmation=CreateFrame("Frame","ArcanaHeirloomConfirmation",UIParent)
 confirmation:SetAllPoints(host);confirmation:SetFrameStrata("FULLSCREEN_DIALOG")
 confirmation:EnableMouse(true);confirmation:EnableKeyboard(true);confirmation:Hide()
 local dialog=CreateFrame("Frame","ArcanaHeirloomConfirmDialog",confirmation)
-dialog:SetPoint("CENTER");dialog:SetSize(510,260);dialog:EnableMouse(true)
+dialog:SetPoint("CENTER");dialog:SetSize(460,154);dialog:EnableMouse(true)
 dialog:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
     tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
 dialog:SetBackdropColor(0.02,0.02,0.03,1)
-local question=Label(dialog,"",24,-24,462)
+local targetLink=CreateFrame("Button","ArcanaHeirloomTargetLink",dialog)
+targetLink:SetPoint("TOPLEFT",20,-18);targetLink:SetSize(420,36)
+local question=Label(targetLink,"",0,0,420)
+targetLink:SetScript("OnEnter",function(self)
+    if quote then ArcanaHeirloomPreview(self,quote.family) end
+end)
+targetLink:SetScript("OnLeave",function() GameTooltip:Hide() end)
 local paymentLink=CreateFrame("Button","ArcanaHeirloomPaymentLink",dialog)
-paymentLink:SetPoint("TOPLEFT",24,-65);paymentLink:SetSize(462,38)
-paymentLink.label=Label(paymentLink,"",0,0,462)
+paymentLink:SetPoint("TOPLEFT",20,-60);paymentLink:SetSize(420,42)
+paymentLink.label=Label(paymentLink,"",0,0,420)
 paymentLink:SetScript("OnEnter",function(self)
     if not quote or quote.kind~=1 then return end
     if quote.source==5 then OriginalTooltip(self,quote.original,quote.family)
@@ -277,20 +283,22 @@ paymentLink:SetScript("OnEnter",function(self)
     end
 end)
 paymentLink:SetScript("OnLeave",function() GameTooltip:Hide() end)
-local details=Label(dialog,"",24,-116,462)
-local accept=Button("ArcanaHeirloomConfirmAccept",dialog,"Forge",35,-210,210,function()
+local function CommitQuote()
     if not quote or quote.expires<=GetTime() or pending or operation or not Allowed() or
         not HasPayment(quote.kind,quote.family,quote.source,quote.quantity,quote.original) then
         Invalidate();Render();return
     end
     local id=quote.id
-    operationContext={id=id,family=quote.family,progress=quote.progress}
+    operationContext={id=id,family=quote.family,progress=quote.progress,kind=quote.kind}
     ArcanaItemUpgradesDB=ArcanaItemUpgradesDB or {}
     ArcanaItemUpgradesDB.heirloomPendingContext=ArcanaItemUpgradesDB.heirloomPendingContext or {}
     ArcanaItemUpgradesDB.heirloomPendingContext[Key()]=operationContext
-    SaveOperation(id);Invalidate();Request("COMMIT",id);reason="Saving your heirloom...";Render()
-end)
-Button("ArcanaHeirloomConfirmCancel",dialog,CANCEL,265,-210,210,function() Invalidate();Render() end)
+    SaveOperation(id);Invalidate();Request("COMMIT",id)
+    reason=operationContext.kind==2 and ("Creating: "..catalogue[operationContext.family].name) or "Saving your heirloom..."
+    Render()
+end
+local accept=Button("ArcanaHeirloomConfirmAccept",dialog,"Forge",25,-114,195,CommitQuote)
+Button("ArcanaHeirloomConfirmCancel",dialog,CANCEL,240,-114,195,function() Invalidate();Render() end)
 confirmation:SetScript("OnKeyDown",function(_,key) if key=="ESCAPE" then Invalidate();Render() end end)
 Invalidate=function()
     quote=nil;confirmation:Hide();GameTooltip:Hide()
@@ -315,7 +323,7 @@ Render=function()
     local visibleSelection=false
     for _,entry in ipairs(filtered) do if entry==selected then visibleSelection=true;break end end
     if selected and not visibleSelection then selected=nil;original=0;Invalidate() end
-    local rowCount=math.max(3,math.min(8,#filtered))
+    local rowCount=8
     listBackdrop:SetHeight(rowCount*24+6);scroll:SetHeight(rowCount*24)
     FauxScrollFrame_Update(scroll,#filtered,rowCount,24)
     local offset=FauxScrollFrame_GetOffset(scroll)
@@ -351,7 +359,7 @@ Render=function()
     local low,high
     if progressingItem and count then low,high=P.Preview(state.progress,source,count) end
     estimate:SetText(low and ("Potential progress: +"..low.."–"..high.."%") or
-        (state and state.progress==100 and "Conjure a permanent account-bound copy. Free." or ""))
+        "")
     spending:SetText(low and (source==5 and "The selected original item will be destroyed." or
         "Spending stops at 100%. Remaining selected materials or gold are kept.") or "")
     forge:SetText(state and state.progress==100 and "Conjure" or "Forge")
@@ -367,7 +375,9 @@ Render=function()
         control:ClearAllPoints();control:SetPoint("TOPLEFT",x,-y)
     end
     local y=114+rowCount*24+16
-    At(title,0,y);At(stateLabel,0,y+27);At(gainLabel,205,y+27)
+    At(title,0,y);At(stateLabel,0,y+27)
+    stateLabel:SetWidth(stateLabel:GetStringWidth())
+    gainLabel:ClearAllPoints();gainLabel:SetPoint("LEFT",stateLabel,"RIGHT",8,0)
     y=y+55
     At(material,-16,y);At(quantity,332,y+2);At(singleQuantity,332,y+2);At(amountLabel,398,y+7)
     if progressingItem then y=y+35 end
@@ -375,8 +385,8 @@ Render=function()
     At(estimate,0,y);At(spending,0,y+18)
     if state then y=y+(progressingItem and 46 or 28);At(forge,175,y);y=y+31 end
     At(status,0,y+3)
-    panel:SetHeight(y+25)
-    if Active() then host:SetHeight(120+y+42) end
+    panel:SetHeight(548)
+    if Active() then host:SetHeight(685) end
     status:SetText(missing and insufficient or reason)
     if missing or reason==insufficient then status:SetTextColor(1,0.15,0.15) else status:SetTextColor(1,1,1) end
 end
@@ -413,29 +423,27 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
         elseif fields[1]=="QUOTE" and pending.selection then
             quote=P.Quote(fields,pending.selection,GetTime());pending=nil
             if quote and selected==quote.family and Active() and Allowed() then
-                local name=catalogue[quote.family].name
-                question:SetText(name)
-                paymentLink.link=nil
                 if quote.kind==2 then
-                    paymentLink:Hide();details:SetText("Conjure a free, permanent copy bound to your account?")
+                    CommitQuote() -- Server enforces the cast; free creation needs no confirmation.
                 else
+                    local name=catalogue[quote.family].name
+                    question:SetText("|cffe6cc80|Hitem:"..quote.family..":0:0:0:0:0:0:0|h["..name.."]|h|r")
+                    paymentLink.link=nil
                     local cost
                     if quote.source==5 then
                         local _,link=OriginalRow(quote.original,quote.family)
-                        cost="Destroy "..(link or "the selected original item")
-                    elseif quote.source==0 then cost="Use up to "..(quote.quantity*100).." gold"
+                        cost="use 1 × "..(link or "the selected original item")
+                    elseif quote.source==0 then
+                        cost="spend "..(quote.quantity*100).." |TInterface\\MoneyFrame\\UI-GoldIcon:14:14:0:0|t"
                     else
                         local definition=P.Materials[quote.source+1]
                         local _,link=GetItemInfo(definition.entry)
                         link=link or ("|cffffffff|Hitem:"..definition.entry..":0:0:0:0:0:0:0|h["..definition.name.."]|h|r")
-                        paymentLink.link=link;cost="Use up to "..quote.quantity.." × "..link
+                        paymentLink.link=link;cost="use "..quote.quantity.." × "..link
                     end
-                    paymentLink.label:SetText(cost);paymentLink:Show()
-                    details:SetText("Gain "..quote.minimum.."–"..quote.maximum.."% unlock progress.\n\n"..
-                        (quote.source==5 and "The selected original item will be destroyed." or
-                        "Spending stops at 100%. Remaining selected materials or gold are kept."))
+                    paymentLink.label:SetText("Are you sure you want to "..cost.."?");paymentLink:Show()
+                    accept:SetText("Forge");confirmation:Show()
                 end
-                accept:SetText(quote.kind==2 and "Conjure" or "Forge");confirmation:Show()
             else Invalidate();reason="The confirmation changed. Please try again." end
         elseif P.Done(fields,catalogue) and (pending.kind=="COMMIT" or pending.kind=="STATUS") then
             local receipt=P.Done(fields,catalogue)
@@ -477,6 +485,10 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
 end)
 events:SetScript("OnUpdate",function()
     local now=GetTime()
+    if operationContext and operationContext.kind==2 and UnitCastingInfo("player")=="Create Heirloom" and CastingBarFrameText then
+        local text="Creating: "..catalogue[operationContext.family].name
+        if CastingBarFrameText:GetText()~=text then CastingBarFrameText:SetText(text) end
+    end
     if searchAt and now>=searchAt then
         searchAt=nil;searchQuery=search:GetText();ResetScroll();Invalidate();Render()
     end

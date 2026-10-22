@@ -13,6 +13,7 @@ function methods:SetScript(event,fn)self.scripts[event]=fn end
 function methods:HookScript(event,fn)
     local old=self.scripts[event];self.scripts[event]=function(...)if old then old(...)end;fn(...)end
 end
+function methods:ClearLines()self.count=0 end
 function methods:Show()self.shown=true end
 function methods:Hide()self.shown=false end
 function methods:IsShown()return self.shown end
@@ -71,6 +72,7 @@ for i=1,80 do
     ArcanaHeirloomEffects.text[160+i]="Raises power by "..i.."."
     ArcanaHeirloomEffects.spells[12][i]=160+i
 end
+ArcanaHeirloomCatalogue={[700004]={name="Plain stat item"}}
 dofile("HeirloomTooltips.lua")
 local events=frames[#frames]
 local checks=0
@@ -106,7 +108,7 @@ check(GameTooltipTextLeft4:GetText()==extraLines[3] and GameTooltipTextLeft5:Get
 local reads=probeReads[12]
 GameTooltip:SetHyperlink("item:700003");check(probeReads[12]==reads)
 events.scripts.OnEvent(events,"PLAYER_LEVEL_UP")
-GameTooltip:SetHyperlink("item:700003");check(probeReads[12]==reads+1)
+GameTooltip:SetHyperlink("item:700003");check(probeReads[12]==nil or probeReads[12]==(reads or 0)+1)
 nativeEffectText=nil
 GameTooltip:SetHyperlink("item:700002") -- Tier pieces with no proc retain native stats.
 check(GameTooltipTextLeft2:GetText()==extraLines[1] and GameTooltipTextLeft3:GetText()==extraLines[2])
@@ -118,10 +120,31 @@ GameTooltip:SetHyperlink("item:700001")
 check(GameTooltipTextLeft3:GetText()=="Twin Blades (0/2)" and GameTooltipTextLeft4.color[1]==0.5)
 GameTooltip:SetHyperlink("item:19019")
 check(GameTooltipTextLeft2:GetText()=="Chance on hit: Native level 80 amount" and GameTooltip:NumLines()==4)
-ArcanaHeirloomPreview(UIParent,700001);check(#sent==1 and sent[1]:find("PREVIEW",1,true))
-GameTooltip:SetHyperlink("item:19019")
+nativeEffectText=nil
+GameTooltip:SetHyperlink("item:700004")
+check(_G["GameTooltipTextLeft"..GameTooltip:NumLines()]:GetText()=="Requires level 1 to 80 (80)")
+nativeEffectText="Chance on hit: DIFFERENT native item wording"
+extraLines={"GearScore: 242"}
 events.scripts.OnEvent(events,"GET_ITEM_INFO_RECEIVED",700001)
-check(GameTooltip.link=="item:19019") -- Late response cannot overwrite another tooltip.
+GameTooltip:SetHyperlink("item:700001")
+check(GameTooltipTextLeft3:GetText()=="Chance on hit: Deals 80 damage.")
+check(GameTooltipTextLeft2:GetText()=="GearScore: 242")
+extraLines={};nativeEffectText="Chance on hit: Native level 80 amount"
+ArcanaHeirloomPreview(UIParent,700001);check(#sent==1 and sent[1]:find("PREVIEW",1,true))
+check(GameTooltipTextLeft1:GetText()=="Loading heirloom...")
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t1\t700001\t80","WHISPER","Spoofed")
+check(GameTooltipTextLeft1:GetText()=="Loading heirloom...")
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t1\t700001\t30","WHISPER","Tester")
+check(GameTooltipTextLeft1:GetText()=="Loading heirloom...")
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t1\t700001\t80","WHISPER","Tester")
+check(GameTooltipTextLeft2:GetText()=="Chance on hit: Deals 80 damage.")
+local requests=#sent
+for i=1,100 do ArcanaHeirloomPreview(UIParent,700001) end
+check(#sent==requests) -- A warm preview has no requests or database work.
+now=now+1;ArcanaHeirloomPreview(UIParent,700002)
+GameTooltip:SetOwner(CreateFrame("Frame"));GameTooltip:SetHyperlink("item:19019")
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t2\t700002\t80","WHISPER","Tester")
+check(GameTooltip.link=="item:19019") -- Late response cannot overwrite another owner.
 dofile("HeirloomEffects.lua")
 local D=ArcanaHeirloomEffects
 for _,row in pairs(D.spells)do

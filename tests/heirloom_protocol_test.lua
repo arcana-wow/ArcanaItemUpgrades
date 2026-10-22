@@ -63,3 +63,7 @@ for _,message in ipairs({
     "DONE\t8\t1\t700001\tnan\t2\t0",
 }) do assert(not P.Done(P.Split(message),catalogue)) end
 print("Heirloom protocol: filtering, capped previews, quote binding and atomic snapshots passed")
+
+local order=P.Filter({[1]={name="A",source=1},[2]={name="Z",source=2},[3]={name="B",source=3}},
+    {[1]={progress=0},[2]={progress=80},[3]={progress=3}},"Unlocked","")
+assert(order[1]==2 and order[2]==3 and order[3]==1)
