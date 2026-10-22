@@ -443,3 +443,20 @@ accessories; its active selection and Clear button are visible beside it.
 Progressing/Unlocked and search previews remain available. The separate drop
 sources section has been removed. Forge quotes, confirmations and account
 progression use the unchanged authoritative server protocol.
+
+## Heirloom crafting and tooltip correction (1.18.0)
+
+Unlocked items sort by progress, then name. Collection selectors share a fixed
+window/list size. Forge uses a compact item/currency-link confirmation and a
+gold coin icon. The green gain sits beside current progress.
+
+Conjure automatically accepts its free server quote, then uses the server's
+three-second crafting spell. The cast bar says Creating: <item>. Interruptions
+award nothing; the existing durable receipt remains the authority for retries.
+Requires the matching certified server and client Spell.dbc (spell 310000).
+
+Every catalogue item gets the level-range line, including stat-only items.
+Native item effect wording identifies proc lines before replacement, preserving
+ratings, enchants and unrelated addon text. First catalogue previews wait for a
+level-matched server acknowledgement; warm hovers reuse a per-level cache and
+rapid hover changes are coalesced. Search remains local and debounced.

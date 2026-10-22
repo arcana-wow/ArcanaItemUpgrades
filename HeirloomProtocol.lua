@@ -124,5 +124,13 @@ function P.Filter(catalogue,progress,mode,query,itemClass,subclass,slot)
                 (subclass=="armor" and item.subclass>=1 and item.subclass<=4)) and
             (not slot or item.slot==slot or (slot=="chest" and (item.slot==5 or item.slot==20))) then rows[#rows+1]=entry end
     end
+    if mode=="Unlocked" then
+        table.sort(rows,function(a,b)
+            local left,right=progress[a].progress,progress[b].progress
+            if left~=right then return left>right end
+            local an,bn=catalogue[a].name:lower(),catalogue[b].name:lower()
+            return an==bn and a<b or an<bn
+        end)
+    end
     return rows
 end

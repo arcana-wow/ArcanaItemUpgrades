@@ -16,6 +16,7 @@ function methods:SetText(text)
     self.text=tostring(text)
     if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
 end
+function methods:GetStringWidth() return #(self.text or "")*6 end
 function methods:GetText() return self.text or "" end
 function methods:CreateTexture() return CreateFrame("Texture",nil,self) end
 function methods:SetHeight(value) self.height=value;self.resizes=(self.resizes or 0)+1 end
@@ -109,7 +110,9 @@ check(forge.enabled)
 frames.ArcanaHeirloomQuantity:SetText("0");check(not forge.enabled)
 frames.ArcanaHeirloomQuantity:SetText("101");check(not forge.enabled)
 frames.ArcanaHeirloomQuantity:SetText("2");check(forge.enabled)
-quote();local count=#sent
+quote();check(frames.ArcanaHeirloomPaymentLink.label.text:find("UI-GoldIcon",1,true))
+check(frames.ArcanaHeirloomPaymentLink.label.text:find("Are you sure you want to spend 200",1,true))
+local count=#sent
 click("ArcanaHeirloomConfirmCancel");check(not confirmation:IsShown() and #sent==count)
 quote();host:HeirloomTabChanged("Tempering");check(not confirmation:IsShown())
 host.serviceTab="Heirloom";tick();host:HeirloomTabChanged("Heirloom");snapshot()
@@ -120,7 +123,7 @@ quote();click("ArcanaHeirloomConfirmAccept")
 check(request()[1]=="COMMIT" and ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
 check(not forge.enabled and not confirmation:IsShown())
 event("BAG_UPDATE");check(request()[1]=="COMMIT")
-tick(8);tick(2);check(request()[1]=="STATUS")
+tick(13);tick(2);check(request()[1]=="STATUS")
 local req=request()
 receive("ERROR\t"..req[2].."\tYour transaction history could not be read.")
 check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id and not forge.enabled)
@@ -137,8 +140,10 @@ snapshot(100);click("ArcanaHeirloomCompleted");click("ArcanaHeirloomRow1")
 check(forge.text=="Conjure" and forge.enabled)
 click("ArcanaHeirloomForge");req=request();check(req[1]=="CONJURE")
 receive("QUOTE\t"..req[2].."\t"..id.."\t2\t700001\t100\t0\t0\t1\t0\t0\t30")
-check(confirmation:IsShown() and frames.ArcanaHeirloomConfirmAccept.text=="Conjure")
-click("ArcanaHeirloomConfirmAccept");req=request()
+check(not confirmation:IsShown() and request()[1]=="COMMIT")
+local autoCommitCount=#sent
+click("ArcanaHeirloomForge");check(#sent==autoCommitCount)
+req=request()
 receive("ERROR\t"..req[2].."\tMake room in your bags before conjuring.")
 check(ArcanaItemUpgradesDB.heirloomPending["Test:Tester"]==id)
 tick(2);req=request();check(req[1]=="STATUS")
@@ -191,7 +196,13 @@ click("ArcanaHeirloomAll");check(frames.ArcanaHeirloomRow1.entry==700002)
 check(frames.ArcanaHeirloomRow1.icon.texture=="Interface\\Icons\\INV_Sword_39")
 check(frames.ArcanaHeirloomAll.marker:IsShown() and not frames.ArcanaHeirloomUnlocked.marker:IsShown())
 check(frames.ArcanaHeirloomSearch.point[3]<frames.ArcanaHeirloomFilter.point[3])
-check(host.height<532)
+check(host.height==685)
+local fixedHeight=host.height
+for _,name in ipairs({"Unlocked","Completed","All"}) do
+    click("ArcanaHeirloom"..name);check(host.height==fixedHeight)
+end
+check(ArcanaHeirloomGain.point[2].kind=="Font")
+check(ArcanaHeirloomGain.point[3]=="RIGHT" and ArcanaHeirloomGain.point[4]==8)
 -- Payment is checked before quoting and again at confirmation; money updates
 -- never trigger a database refresh. Bag changes invalidate exact-copy identity.
 frames.ArcanaHeirloomSearch:SetText("");tick(0.3)
