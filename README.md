@@ -460,3 +460,15 @@ Native item effect wording identifies proc lines before replacement, preserving
 ratings, enchants and unrelated addon text. First catalogue previews wait for a
 level-matched server acknowledgement; warm hovers reuse a per-level cache and
 rapid hover changes are coalesced. Search remains local and debounced.
+
+## Original-item Forge selection (1.18.1)
+
+Original-item confirmations say **destroy**. The quantity and Amount label are
+hidden for this source; each Forge uses exactly one explicitly selected copy.
+Switching heirlooms clears the old copy and its dropdown label. Available copies
+show a selection prompt instead of a missing-currency error, and selecting a
+matching bag item enables Forge. Stale menu callbacks, wrong-family items and
+changed bag slots cannot be submitted. These checks are local and do not add
+server requests; the server still validates the item GUID and payment.
+
+Addon-only update for the existing 1.18.0 Test server/client patch.
