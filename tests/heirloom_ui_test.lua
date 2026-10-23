@@ -1,4 +1,5 @@
-local frames,sent,menus={},{},{}
+local frames,sent,menus,created={},{},{},{}
+local bagItems
 local now,combat,dead,level=1,false,false,30
 local money,materials,bagLink=100000000,100,"item:16905:123:456"
 local methods={}
@@ -32,6 +33,7 @@ function CreateFrame(kind,name,parent,template)
     local frame=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={}},{__index=function(_,key)
         return methods[key] or (key:match("^[A-Z]") and function() end)
     end})
+    created[#created+1]=frame
     if name then frames[name]=frame;_G[name]=frame end
     return frame
 end
@@ -67,7 +69,10 @@ function UnitName() return "Tester" end
 function GetRealmName() return "Test" end
 function GetTime() return now end
 function GetItemInfo(entry) return "Item "..entry,"|cffffffff|Hitem:"..entry..":0:0:0:0:0:0:0|h[Item "..entry.."]|h|r" end
-function GetContainerItemLink() return bagLink end
+function GetContainerItemLink(bag,slot)
+    if bagItems then return bagItems[bag] and bagItems[bag][slot] end
+    return bagLink
+end
 function GetMoney() return money end
 function GetItemCount(_,bank) assert(bank==false);return materials end
 function SendAddonMessage(prefix,message,channel,target)
@@ -156,6 +161,7 @@ check(forge.enabled);click("ArcanaHeirloomForge");req=request()
 check(req[4]=="5" and req[5]=="1" and req[6]=="42")
 receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t20\t20\t1\t5\t42\t30")
 check(confirmation:IsShown())
+check(frames.ArcanaHeirloomPaymentLink.label.text:find("want to destroy 1 × item:16905",1,true))
 event("BAG_UPDATE");check(not confirmation:IsShown() and not forge.enabled)
 tick();snapshot()
 click("ArcanaHeirloomAll");frames.ArcanaHeirloomSearch:SetText("thunder");tick(0.3);check(frames.ArcanaHeirloomRow1.entry==700002)
@@ -249,4 +255,93 @@ for guid=1,200 do receive("ORIGINAL\t"..req[2].."\t700001\t"..guid.."\t0\t1\t169
 check(host.resizes==beforeRows)
 receive("END\t"..req[2]);check(host.resizes==beforeRows+1)
 local afterSnapshot=#sent;tick(1);check(#sent==afterSnapshot)
+-- Original copies are explicitly selected for the current family. A stale
+-- dropdown callback/quote cannot carry an item into another family's Forge.
+local function twoFamilies()
+    local r=request();check(r[1]=="SYNC")
+    receive("BEGIN\t"..r[2].."\t2\t2")
+    receive("ROW\t"..r[2].."\t700001\t20\t3")
+    receive("ROW\t"..r[2].."\t700002\t0\t0")
+    receive("ORIGINAL\t"..r[2].."\t700001\t42\t2\t1\t16905")
+    receive("ORIGINAL\t"..r[2].."\t700002\t43\t2\t2\t19019")
+    receive("END\t"..r[2])
+end
+bagItems={[2]={[1]="item:16905:123:456",[2]="item:19019:0:0"}}
+event("BAG_UPDATE");tick();twoFamilies()
+click("ArcanaHeirloomRow2")
+local amount
+for _,frame in ipairs(created) do if frame.text=="Amount" then amount=frame end end
+check(amount and not amount:IsShown() and not frames.ArcanaHeirloomQuantity:IsShown())
+local staticQuantity
+for _,frame in ipairs(created) do
+    if frame.kind=="Font" and frame.text=="1" and frame:IsShown() then staticQuantity=frame end
+end
+check(not staticQuantity)
+check(frames.ArcanaHeirloomOriginal.text=="Choose an original from your bags")
+check(not forge.enabled and ArcanaHeirloomStatus.text=="Choose an original from your bags.")
+check(ArcanaHeirloomStatus.color[2]==1)
+local noSelectionRequests=#sent
+click("ArcanaHeirloomForge");check(#sent==noSelectionRequests)
+menus={};frames.ArcanaHeirloomOriginal.initialize();check(#menus==1)
+menus[1].func();check(forge.enabled and ArcanaHeirloomStatus.text=="")
+check(frames.ArcanaHeirloomOriginal.text:find("item:19019",1,true))
+local staleChoice=menus[1].func
+click("ArcanaHeirloomForge");local staleRequest=request()
+check(staleRequest[3]=="700002" and staleRequest[6]=="43")
+click("ArcanaHeirloomRow1")
+check(not forge.enabled and frames.ArcanaHeirloomOriginal.text=="Choose an original from your bags")
+staleChoice();check(not forge.enabled and frames.ArcanaHeirloomOriginal.text=="Choose an original from your bags")
+receive("QUOTE\t"..staleRequest[2].."\t"..id.."\t1\t700002\t0\t20\t20\t1\t5\t43\t30")
+check(not confirmation:IsShown())
+menus={};frames.ArcanaHeirloomOriginal.initialize();check(#menus==1);menus[1].func()
+check(forge.enabled and ArcanaHeirloomStatus.text=="")
+frames.ArcanaHeirloomQuantity:SetText("99") -- hidden input cannot change original-copy quantity
+check(forge.enabled)
+click("ArcanaHeirloomForge");req=request()
+check(req[3]=="700001" and req[4]=="5" and req[5]=="1" and req[6]=="42")
+receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t20\t20\t20\t1\t5\t42\t30")
+check(confirmation:IsShown())
+check(frames.ArcanaHeirloomPaymentLink.label.text=="Are you sure you want to destroy 1 × item:16905:123:456?")
+-- Local slot replacement is rejected even before BAG_UPDATE arrives.
+bagItems[2][1]="item:999"
+local beforeInvalidCommit=#sent
+click("ArcanaHeirloomConfirmAccept")
+check(#sent==beforeInvalidCommit and not confirmation:IsShown() and not forge.enabled)
+check(frames.ArcanaHeirloomOriginal.text=="Choose an original from your bags")
+check(ArcanaHeirloomStatus.text=="You do not have the required item/currency.")
+menus={};frames.ArcanaHeirloomOriginal.initialize();check(#menus==0)
+-- During snapshot refresh do not claim that inventory is missing. Restoring a
+-- valid bag copy enables explicit selection without additional requests.
+event("BAG_UPDATE")
+check(ArcanaHeirloomStatus.text~="You do not have the required item/currency.")
+bagItems[2][1]="item:16905:123:456";tick();twoFamilies()
+local beforeSelection=#sent
+menus={};frames.ArcanaHeirloomOriginal.initialize();menus[1].func()
+check(forge.enabled and ArcanaHeirloomStatus.text=="")
+click("ArcanaHeirloomRow2");menus={};frames.ArcanaHeirloomOriginal.initialize();menus[1].func()
+check(forge.enabled and frames.ArcanaHeirloomOriginal.text:find("item:19019",1,true))
+frames.ArcanaHeirloomOriginalHover.scripts.OnEnter(frames.ArcanaHeirloomOriginalHover)
+check(GameTooltip.bag==2 and GameTooltip.slot==2)
+check(#sent==beforeSelection)
+-- A bag move retains the explicitly chosen GUID only after the new snapshot
+-- validates its location. The label and hover must follow the moved copy.
+bagItems[2][2]=nil;bagItems[2][3]="item:19019:0:0"
+event("BAG_UPDATE");check(not forge.enabled)
+tick();req=request();check(req[1]=="SYNC")
+receive("BEGIN\t"..req[2].."\t2\t2")
+receive("ROW\t"..req[2].."\t700001\t20\t3")
+receive("ROW\t"..req[2].."\t700002\t0\t0")
+receive("ORIGINAL\t"..req[2].."\t700001\t42\t2\t1\t16905")
+receive("ORIGINAL\t"..req[2].."\t700002\t43\t2\t3\t19019")
+receive("END\t"..req[2])
+check(forge.enabled and frames.ArcanaHeirloomOriginal.text:find("bag 2, slot 3",1,true))
+frames.ArcanaHeirloomOriginalHover.scripts.OnEnter(frames.ArcanaHeirloomOriginalHover)
+check(GameTooltip.bag==2 and GameTooltip.slot==3)
+-- Currency quantities return normally; confirmation wording remains "use".
+menus={};frames.ArcanaHeirloomMaterial.initialize();menus[2].func()
+frames.ArcanaHeirloomQuantity:SetText("1")
+check(frames.ArcanaHeirloomQuantity:IsShown() and amount:IsShown() and forge.enabled)
+click("ArcanaHeirloomForge");req=request()
+receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700002\t0\t1\t3\t1\t1\t0\t30")
+check(confirmation:IsShown() and frames.ArcanaHeirloomPaymentLink.label.text:find("want to use 1 ×",1,true))
 print("PASS "..checks.." heirloom UI confirmation, stale inventory, timeout, ambiguous receipt, spoof, discovery and filtering checks")

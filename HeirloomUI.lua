@@ -30,8 +30,9 @@ local function Allowed()
 end
 local function OriginalRow(guid,family)
     local row=valid and originals[guid]
-    local link=row and GetContainerItemLink(row.bag,row.slot)
-    if row and row.family==family and link and tonumber(link:match("item:(%d+)"))==row.entry then return row,link end
+    if not row or row.family~=family then return end
+    local link=GetContainerItemLink(row.bag,row.slot)
+    if link and tonumber(link:match("item:(%d+)"))==row.entry then return row,link end
 end
 local function HasPayment(kind,family,paymentSource,count,guid)
     if kind==2 then return true end
@@ -184,14 +185,13 @@ material:SetPoint("TOPLEFT",-16,-349);UIDropDownMenu_SetWidth(material,270)
 local quantity=CreateFrame("EditBox","ArcanaHeirloomQuantity",panel,"InputBoxTemplate")
 quantity:SetPoint("TOPLEFT",332,-351);quantity:SetSize(58,22);quantity:SetNumeric(true);quantity:SetAutoFocus(false)
 quantity:SetMaxLetters(3);quantity:SetText("1")
-local singleQuantity=Label(panel,"1",332,-351,58)
-singleQuantity:Hide()
 local amountLabel=Label(panel,"Amount",398,-356,100,"GameFontHighlightSmall")
 quantity:SetScript("OnTextChanged",function() if Invalidate then Invalidate();Render() end end)
 quantity:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
 local originalDrop=CreateFrame("Frame","ArcanaHeirloomOriginal",panel,"UIDropDownMenuTemplate")
 originalDrop:SetPoint("TOPLEFT",-16,-383);UIDropDownMenu_SetWidth(originalDrop,510)
-UIDropDownMenu_SetText(originalDrop,"Choose an original from your bags")
+local chooseOriginal="Choose an original from your bags"
+UIDropDownMenu_SetText(originalDrop,chooseOriginal)
 local originalHover=CreateFrame("Frame","ArcanaHeirloomOriginalHover",originalDrop)
 originalHover:SetPoint("TOPLEFT",20,-5);originalHover:SetSize(482,22);originalHover:EnableMouse(true)
 originalHover:SetScript("OnEnter",function(self) OriginalTooltip(self,original,selected) end)
@@ -211,15 +211,18 @@ end)
 UIDropDownMenu_SetText(material,P.Materials[1].name)
 UIDropDownMenu_Initialize(originalDrop,function()
     local choices={}
-    for guid,row in pairs(originals) do if row.family==selected then choices[#choices+1]=guid end end
+    local family=selected
+    for guid in pairs(originals) do if OriginalRow(guid,family) then choices[#choices+1]=guid end end
     table.sort(choices)
     for _,guid in ipairs(choices) do
-        local choice,row=guid,originals[guid]
-        local link=GetContainerItemLink(row.bag,row.slot)
+        local choice=guid
+        local row,link=OriginalRow(choice,family)
         local info=UIDropDownMenu_CreateInfo()
         info.text=(link or GetItemInfo(row.entry) or ("Item "..row.entry)).." — bag "..row.bag..", slot "..row.slot
-        local text=info.text
-        info.func=function() original=choice;UIDropDownMenu_SetText(originalDrop,text);Invalidate();Render() end
+        info.func=function()
+            if selected~=family or source~=5 or not OriginalRow(choice,family) then return end
+            original=choice;Invalidate();Render()
+        end
         UIDropDownMenu_AddButton(info)
         -- Blizzard reuses dropdown buttons across menus. Gate our hook by the
         -- open menu and replace its row identity every time this menu is built.
@@ -245,7 +248,7 @@ local forge=Button("ArcanaHeirloomForge",panel,"Forge",175,-456,200,function()
     if not selected or pending or operation or searchAt or not valid or not Allowed() then return end
     local state=progress[selected]
     if not state then return end
-    local count=P.Number(quantity:GetText(),100)
+    local count=source==5 and 1 or P.Number(quantity:GetText(),100)
     if state.progress==100 then
         Request("CONJURE",tostring(selected),{kind=2,family=selected,quantity=1,source=0,original=0})
     elseif count and P.Preview(state.progress,source,count) and HasPayment(1,selected,source,count,original) then
@@ -350,12 +353,12 @@ Render=function()
     local progressingItem=state and state.progress<100
     for _,control in ipairs({material,quantity,amountLabel}) do if progressingItem then control:Show() else control:Hide() end end
     if progressingItem and source==5 then
-        originalDrop:Show();quantity:ClearFocus();quantity:Hide();singleQuantity:Show()
+        originalDrop:Show();quantity:ClearFocus();quantity:Hide();amountLabel:Hide()
     else
-        originalDrop:Hide();singleQuantity:Hide()
+        originalDrop:Hide()
         if progressingItem then quantity:Show() else quantity:Hide() end
     end
-    local count=P.Number(quantity:GetText(),100)
+    local count=source==5 and 1 or P.Number(quantity:GetText(),100)
     local low,high
     if progressingItem and count then low,high=P.Preview(state.progress,source,count) end
     estimate:SetText(low and ("Potential progress: +"..low.."–"..high.."%") or
@@ -364,7 +367,20 @@ Render=function()
         "Spending stops at 100%. Remaining selected materials or gold are kept.") or "")
     forge:SetText(state and state.progress==100 and "Conjure" or "Forge")
     local paid=state and HasPayment(state.progress==100 and 2 or 1,selected,source,count,original)
-    local missing=progressingItem and low and not paid
+    -- Keep the label and payment identity together. Inventory refreshes may
+    -- relocate the same GUID; only a validated snapshot can make it usable.
+    local row,link=OriginalRow(original,selected)
+    if valid and not row then original=0 end
+    UIDropDownMenu_SetText(originalDrop,row and
+        (link.." — bag "..row.bag..", slot "..row.slot) or chooseOriginal)
+    local availableOriginal=false
+    if progressingItem and source==5 and valid and not paid then
+        for guid in pairs(originals) do
+            if OriginalRow(guid,selected) then availableOriginal=true;break end
+        end
+    end
+    local choosingOriginal=progressingItem and source==5 and valid and not paid and availableOriginal
+    local missing=progressingItem and valid and low and not paid and not choosingOriginal
     local can=state and paid and valid and not pending and not operation and not searchAt and Allowed() and
         (state.progress==100 or (low and (source~=5 or originals[original] and originals[original].family==selected)))
     if can then forge:Enable() else forge:Disable() end
@@ -379,7 +395,7 @@ Render=function()
     stateLabel:SetWidth(stateLabel:GetStringWidth())
     gainLabel:ClearAllPoints();gainLabel:SetPoint("LEFT",stateLabel,"RIGHT",8,0)
     y=y+55
-    At(material,-16,y);At(quantity,332,y+2);At(singleQuantity,332,y+2);At(amountLabel,398,y+7)
+    At(material,-16,y);At(quantity,332,y+2);At(amountLabel,398,y+7)
     if progressingItem then y=y+35 end
     if progressingItem and source==5 then At(originalDrop,-16,y);y=y+34 end
     At(estimate,0,y);At(spending,0,y+18)
@@ -387,7 +403,7 @@ Render=function()
     At(status,0,y+3)
     panel:SetHeight(548)
     if Active() then host:SetHeight(685) end
-    status:SetText(missing and insufficient or reason)
+    status:SetText(missing and insufficient or choosingOriginal and (chooseOriginal..".") or reason)
     if missing or reason==insufficient then status:SetTextColor(1,0.15,0.15) else status:SetTextColor(1,1,1) end
 end
 function host:RenderHeirlooms() Render() end
@@ -432,7 +448,7 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
                     local cost
                     if quote.source==5 then
                         local _,link=OriginalRow(quote.original,quote.family)
-                        cost="use 1 × "..(link or "the selected original item")
+                        cost="destroy 1 × "..(link or "the selected original item")
                     elseif quote.source==0 then
                         cost="spend "..(quote.quantity*100).." |TInterface\\MoneyFrame\\UI-GoldIcon:14:14:0:0|t"
                     else
