@@ -472,3 +472,10 @@ changed bag slots cannot be submitted. These checks are local and do not add
 server requests; the server still validates the item GUID and payment.
 
 Addon-only update for the existing 1.18.0 Test server/client patch.
+
+## 1.18.2 Test balance catalogue
+
+Heirloom effect descriptions now follow approved catalogue v3.2, including
+Classic/TBC/Wrath rare budgets at levels 60/61 and 70/71, and the 70% original
+ceiling through each original's required level. Requires the matching certified
+server balance release and client patch. No saved collection state is reset.
