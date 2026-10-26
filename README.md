@@ -1,5 +1,16 @@
 # ArcanaItemUpgrades
 
+## Heirloom satchel loot compatibility (1.18.3)
+
+Registers the missing heirloom-quality color in Wrath's Lua UI table using the
+client's own color API, preserving an existing entry from another addon.
+This prevents the native loot window from stopping midway through drawing an
+heirloom reward, leaving blank slots/page controls or an unclickable item after
+reopening. The compatibility file loads at addon startup; no panel needs opening.
+The server still unlocks the family on first opening and consumes the satchel
+only when the physical copy is collected. This addon update needs no server
+rebuild, client patch replacement or cache deletion. Restart WoW after installing.
+
 ## Heirlooms (1.17.0)
 
 The compact Heirloom tab offers clearly selected **Unlocked** (discovered,
