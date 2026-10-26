@@ -57,6 +57,7 @@ jobs:
           lua5.1 tests/heirloom_protocol_test.lua
           lua5.1 tests/heirloom_ui_test.lua
           lua5.1 tests/heirloom_tooltip_test.lua
+          lua5.1 tests/heirloom_loot_test.lua
 
       - name: Build install-ready archive
         shell: bash
@@ -64,7 +65,7 @@ jobs:
           set -euo pipefail
           install -d package/ArcanaItemUpgrades
           install -m 0644 ArcanaItemUpgrades.toc ArcanaItemUpgrades.lua AffixProtocol.lua ArcanaItemAffixes.lua UpgradeTooltips.lua AscensionProtocol.lua AscensionUI.lua AscensionSetTooltips.lua AscensionCatalogueProtocol.lua AscensionCatalogue.lua RecyclingProtocol.lua RecyclingUI.lua README.md LICENSE package/ArcanaItemUpgrades/
-          install -m 0644 HeirloomProtocol.lua HeirloomCatalogue.lua HeirloomEffects.lua HeirloomTooltips.lua HeirloomUI.lua package/ArcanaItemUpgrades/
+          install -m 0644 HeirloomCompatibility.lua HeirloomProtocol.lua HeirloomCatalogue.lua HeirloomEffects.lua HeirloomTooltips.lua HeirloomUI.lua package/ArcanaItemUpgrades/
           cd package
           zip -X -r ../ArcanaItemUpgrades.zip ArcanaItemUpgrades
 
