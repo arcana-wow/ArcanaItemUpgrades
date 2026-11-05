@@ -490,3 +490,11 @@ Heirloom effect descriptions now follow approved catalogue v3.2, including
 Classic/TBC/Wrath rare budgets at levels 60/61 and 70/71, and the 70% original
 ceiling through each original's required level. Requires the matching certified
 server balance release and client patch. No saved collection state is reset.
+
+## Equipment list presentation (1.18.4)
+
+Cloaks appear immediately after shoulders. Shirts and tabards are omitted from
+the equipment services. Ascension lists only equipment with a server-provided
+next ascension path; level and token availability still appear as eligibility
+messages. Filtering preserves native equipment IDs and resets hidden selection
+and excessive scroll offsets. Run all Lua 5.1 suites before packaging.

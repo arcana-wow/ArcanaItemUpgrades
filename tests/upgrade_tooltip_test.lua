@@ -87,7 +87,9 @@ function GetInventoryItemLink(unit, slot) return links[slot] end
 function GetContainerItemLink(bag, slot) return belt end
 UISpecialFrames={}; SlashCmdList={}; UIParent=CreateFrame("Frame")
 function FauxScrollFrame_Update() end
-function FauxScrollFrame_GetOffset() return 0 end
+local scrollOffset = 0
+function FauxScrollFrame_GetOffset() return scrollOffset end
+function FauxScrollFrame_SetOffset(_, value) scrollOffset=value end
 function GetInventoryItemTexture() return "Texture" end
 function StaticPopup_Show(kind, a,b,data) popup={kind=kind,data=data} end
 local layoutColors
@@ -317,4 +319,42 @@ check(not allowedLocation,"tempering still denies combat inside dungeons")
 combat=false;dead=true;host:UpdateDisplay()
 check(not allowedLocation,"tempering still denies dead players inside dungeons")
 dead=false;inside=false;instanceType="none";host.ServiceEligibility=previousEligibility
+-- Exercise the real shared equipment renderer: presentation IDs, filtering,
+-- selections and stale scroll offsets must agree across service tabs.
+host.serviceTab="Tempering"
+local equipment={}
+for id=0,18 do equipment[id]={slot=id,entry=1000+id,packed=1} end
+equipment[999]={slot=999,entry=999,packed=1}
+host:SetAffixSlots(equipment)
+local ordered=host:OrderedEquipmentSlots()
+check(#ordered==17,"unsupported shirt/tabard and out-of-range IDs are absent")
+check(ordered[3].slot==2 and ordered[4].slot==14 and ordered[5].slot==4,
+    "cape is immediately below shoulders with native IDs intact")
+for _,item in ipairs(ordered) do check(item.slot~=3 and item.slot~=18,"cosmetic equipment is hidden") end
+scrollOffset=99;host:UpdateDisplay()
+check(scrollOffset==3,"oversized equipment scroll offset clamps to populated rows")
+host.ascensionSlots={
+    [14]={slot=14,entry=1014,target=500000,token=194700,count=0},
+    [3]={slot=3,entry=1003,target=0},[18]={slot=18,entry=1018,target=0},
+    [5]={slot=5,entry=6468,target=0},[7]={slot=7,entry=1007,target=0}
+}
+host.serviceTab="Ascension";host:UpdateDisplay()
+ordered=host:OrderedEquipmentSlots()
+check(#ordered==1 and ordered[1].slot==14,"Ascension hides equipment with no next path")
+check(scrollOffset==0 and host:GetSelectedEquipmentSlot()==14,"filter repairs scrolling and hidden selection")
+check(ordered[1].entry==1014,"authoritative native item identity is preserved")
+local capeRow
+for _,f in ipairs(frames) do if f.scripts.OnDoubleClick and f.arcanaSlot==14 then capeRow=f;break end end
+check(capeRow~=nil,"cape remains visible without a token")
+capeRow.scripts.OnDoubleClick(capeRow,"LeftButton")
+check(opened==14,"display order never changes action target IDs")
+host.ascensionSlots={};host:UpdateDisplay()
+check(host:GetSelectedEquipmentSlot()==nil and #host:OrderedEquipmentSlots()==0,"empty filtered list has no stale actionable selection")
+-- List assembly is strictly bounded by the 17 supported equipment slots,
+-- regardless of snapshot table size, and performs no API or network requests.
+local beforeRequests=#sent
+for id=20,10020 do equipment[id]={slot=id,entry=id,packed=1} end
+host.serviceTab="Tempering";host:SetAffixSlots(equipment)
+for i=1,1000 do check(#host:OrderedEquipmentSlots()==17,"equipment assembly remains bounded") end
+check(#sent==beforeRequests,"list rendering sends no per-row or repeated requests")
 print("PASS: "..checks.." upgrade tooltip integration checks (Lua 5.1)")

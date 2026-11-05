@@ -532,18 +532,20 @@ function frame:SetAffixSlots(slots)
     self:UpdateDisplay()
 end
 
-local function OrderedSlots()
+-- Server equipment IDs are zero-based. Presentation order must never change
+-- the IDs sent in upgrade commands or used for inventory tooltips.
+local EQUIPMENT_ORDER = {0, 1, 2, 14, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17}
+function frame:OrderedEquipmentSlots()
     local ordered = {}
-    for _, slot in pairs(state.slots) do table.insert(ordered, slot) end
-    for id, slot in pairs(frame.affixSlots or {}) do
-        if not state.slots[id] then table.insert(ordered, slot) end
-    end
-    for id, slot in pairs(frame.ascensionSlots or {}) do
-        if not state.slots[id] and not (frame.affixSlots and frame.affixSlots[id]) then
+    for _, id in ipairs(EQUIPMENT_ORDER) do
+        local ascension = self.ascensionSlots and self.ascensionSlots[id]
+        local slot = state.slots[id] or (self.affixSlots and self.affixSlots[id]) or ascension
+        -- Ascension previews include unsupported equipment with target=0.
+        -- Level and token restrictions do not remove an otherwise valid path.
+        if slot and (self.serviceTab ~= "Ascension" or (ascension and ascension.target > 0)) then
             table.insert(ordered, slot)
         end
     end
-    table.sort(ordered, function(a, b) return a.slot < b.slot end)
     return ordered
 end
 
@@ -558,12 +560,22 @@ function frame:UpdateDisplay()
         if self.RenderRecycling then self:RenderRecycling() end
         return
     end
-    local ordered = OrderedSlots()
-    if state.selected and not SelectedSlot(state.selected) then state.selected = nil end
+    local ordered = self:OrderedEquipmentSlots()
+    local selectedVisible = false
+    for _, slot in ipairs(ordered) do
+        if slot.slot == state.selected then selectedVisible = true; break end
+    end
+    if not selectedVisible then state.selected = nil end
     if not state.selected and ordered[1] then state.selected = ordered[1].slot end
 
     FauxScrollFrame_Update(scrollFrame, #ordered, VISIBLE_ROWS, ROW_HEIGHT)
     local offset = FauxScrollFrame_GetOffset(scrollFrame)
+    local maxOffset = math.max(0, #ordered - VISIBLE_ROWS)
+    if offset > maxOffset then
+        offset = maxOffset
+        FauxScrollFrame_SetOffset(scrollFrame, offset)
+        scrollFrame:SetVerticalScroll(offset * ROW_HEIGHT)
+    end
     for index, row in ipairs(rows) do
         local slot = ordered[index + offset]
         if slot then
