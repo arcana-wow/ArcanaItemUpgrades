@@ -854,4 +854,31 @@ check(rendered("+2 Strength")==1 and rendered("+4 Stamina")==0,
     "unhovered preload cannot overwrite the owner's synchronized bonus")
 InspectFrame:Hide(); tooltip:Hide()
 
+-- Scripted containers publish the exact frozen visible rows before native
+-- loot serialization, including ordinary decisions. Zero resolves the reserved
+-- invisible line; reopening compacts underlying consumed-slot holes.
+event("LOOT_CLOSED")
+lootLink=boots
+receive("BEGIN\t0\t810")
+receive("C\t810\t1\t10411\t0\t"..strength.."\t1")
+receive("C\t810\t2\t10411\t0\t"..stamina.."\t1")
+receive("END\t810")
+event("LOOT_OPENED"); tooltip:SetLootItem(2)
+check(rendered("+4 Stamina")==1 and rendered("+2 Strength")==0,
+    "scripted duplicate entry uses its own frozen visible row")
+event("LOOT_CLOSED")
+receive("BEGIN\t0\t811")
+receive("C\t811\t1\t10411\t0\t"..stamina.."\t1")
+receive("END\t811")
+event("LOOT_OPENED"); tooltip:SetLootItem(1)
+check(rendered("+4 Stamina")==1,
+    "reopened partial scripted chest compacts remaining display indices")
+event("LOOT_CLOSED"); event("LOOT_OPENED"); tooltip:SetLootItem(1)
+check(tooltip.arcanaAffixLine and not tooltip.arcanaAffixLine.text,
+    "scripted ordinary decision waits with a reserved placeholder")
+receive("BEGIN\t0\t812"); receive("C\t812\t1\t10411\t0\t0\t0"); receive("END\t812")
+check(tooltip.arcanaAffixLine==nil and rendered("+4 Stamina")==0,
+    "explicit frozen zero resolves the invisible placeholder without inventing a bonus")
+event("LOOT_CLOSED")
+
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")
