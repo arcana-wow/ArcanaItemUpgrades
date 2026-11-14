@@ -31,6 +31,13 @@ assert(not P.Preview(100,0,1))
 assert(not P.Preview(0,5,2))
 assert(not P.Preview(0,0,0))
 assert(not P.Preview(0,0,1.5))
+assert(#P.Materials==8 and P.Materials[6].name=="Original item")
+assert(P.Materials[7].entry==194900 and P.Materials[8].entry==29434)
+for _,source in ipairs({6,7}) do
+    a,b=P.Preview(0,source,2);assert(a==2 and b==6)
+    a,b=P.Preview(99,source,100);assert(a==1 and b==1)
+end
+assert(not P.Preview(0,8,1))
 local id=string.rep("a",32)
 local selection={request=2,kind=1,family=700001,quantity=2,source=0,original=0}
 local fields=P.Split("QUOTE\t2\t"..id.."\t1\t700001\t0\t6\t10\t2\t0\t0\t30")
@@ -40,6 +47,12 @@ for _,index in ipairs({2,4,5,7,8,9,10,11,12}) do
     assert(not P.Quote(fields,selection,10));fields[index]=old
 end
 fields[3]="wrong";assert(not P.Quote(fields,selection,10))
+for _,source in ipairs({6,7}) do
+    selection.source=source
+    fields=P.Split("QUOTE\t2\t"..id.."\t1\t700001\t0\t2\t6\t2\t"..source.."\t0\t30")
+    assert(P.Quote(fields,selection,10).source==source)
+    fields[10]="1";assert(not P.Quote(fields,selection,10))
+end
 local snapshot=P.Begin(P.Split("BEGIN\t5\t2\t1"),5)
 assert(snapshot)
 assert(P.Append(snapshot,P.Split("ROW\t5\t700001\t0\t0"),catalogue))
