@@ -8,6 +8,8 @@ P.Materials = {
     {name="Wintergrasp Mark",entry=43589,minimum=3,maximum=5},
     {name="Arcana Dogtag",entry=194400,minimum=1,maximum=3},
     {name="Original item",minimum=20,maximum=20},
+    {name="Arcana Legacy Emblem",entry=194900,minimum=1,maximum=3},
+    {name="Badge of Justice",entry=29434,minimum=1,maximum=3},
 }
 function P.Split(text)
     if type(text)~="string" or #text>249 then return {} end

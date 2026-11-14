@@ -232,6 +232,20 @@ check(confirmation:IsShown() and frames.ArcanaHeirloomPaymentLink.label.text:fin
 frames.ArcanaHeirloomPaymentLink.scripts.OnEnter(frames.ArcanaHeirloomPaymentLink)
 check(GameTooltip.link:find("|Hitem:47241:",1,true))
 click("ArcanaHeirloomConfirmCancel")
+for _,material in ipairs({{source=6,entry=194900},{source=7,entry=29434}}) do
+    menus={};frames.ArcanaHeirloomMaterial.initialize();check(#menus==8)
+    menus[material.source+1].func()
+    materials=1;event("BAG_UPDATE");tick();snapshot();check(not forge.enabled)
+    materials=2;event("BAG_UPDATE");tick();snapshot();check(forge.enabled)
+    click("ArcanaHeirloomForge");req=request()
+    check(req[4]==tostring(material.source) and req[5]=="2")
+    receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700001\t0\t2\t6\t2\t"..material.source.."\t0\t30")
+    check(confirmation:IsShown())
+    check(frames.ArcanaHeirloomPaymentLink.label.text:find("|Hitem:"..material.entry..":",1,true))
+    frames.ArcanaHeirloomPaymentLink.scripts.OnEnter(frames.ArcanaHeirloomPaymentLink)
+    check(GameTooltip.link:find("|Hitem:"..material.entry..":",1,true))
+    click("ArcanaHeirloomConfirmCancel")
+end
 menus={};frames.ArcanaHeirloomMaterial.initialize();menus[6].func()
 menus={};frames.ArcanaHeirloomOriginal.initialize();menus[1].func()
 UIDROPDOWNMENU_OPEN_MENU=frames.ArcanaHeirloomOriginal

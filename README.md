@@ -22,7 +22,9 @@ at completion. Native icons are available without warming the item cache.
 
 Normal/heroic versions and tier variants share a single family. Receiving an
 eligible original discovers it at 0% without destroying it. Forge accepts gold,
-Triumph, Frost, Wintergrasp Marks, Dogtags or a matching original. Hover the
+Triumph, Frost, Wintergrasp Marks, Dogtags, Arcana Legacy Emblems, Badges of
+Justice or a matching original. Legacy Emblems and Badges of Justice each add
+1–3% progress, matching Triumph. Hover the
 original picker or chosen copy for its actual bag tooltip. Confirmations show
 hoverable payment links. Insufficient carried payment disables Forge and displays
 red guidance. The server revalidates payment and exact original identity.
