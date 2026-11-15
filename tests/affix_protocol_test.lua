@@ -16,7 +16,16 @@ eq(P.Describe(pack(36,8,70)), "+8 Haste Rating", "TBC haste")
 eq(P.Describe(pack(44,10,79)), "+10 Armor Penetration Rating", "TBC custom ArP")
 eq(P.Describe(1110147), "+2 Agility", "policy v2 Ironpatch Blade")
 eq(P.Describe(1126598), "+3 Spirit", "policy v2 Feet of the Lynx")
-for _, bad in ipairs({0, -1, 0.5, 1048576+20*64+4, 1572864+80*4096+20*64+4,
+eq(P.Describe(pack(4,20,80,3)), "+20 Strength", "v3 original stat")
+for stat, label in pairs({[31]="Hit", [37]="Expertise", [12]="Defense", [13]="Dodge", [14]="Parry"}) do
+    eq(P.Describe(pack(stat,20,80,3)), "+20 " .. label .. " Rating", "v3 rating")
+    eq(P.Describe(pack(stat,20,80,2)), nil, "new rating rejected under v2")
+    eq(P.Describe(pack(stat,20,80,1)), nil, "new rating rejected under v1")
+end
+eq(P.Describe(pack(43,10,80,3)), "+10 Mana per 5 sec", "v3 MP5")
+eq(P.Describe(pack(43,1,10,3)), "+1 Mana per 5 sec", "low-level v3 MP5")
+for _, bad in ipairs({0, -1, 0.5, 1048576+20*64+4, pack(4,20,80,4),
+    pack(43,10,80,2), pack(43,11,80,3), pack(43,4,31,3), pack(31,4,30,3),
     524288+63+20*64, 4294967296, "bad"}) do
     eq(P.Describe(bad), nil, "invalid encoding")
 end
