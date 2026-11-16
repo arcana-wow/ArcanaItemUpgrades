@@ -118,6 +118,9 @@ for _, method in ipairs({"SetTradePlayerItem","SetTradeTargetItem","SetBuybackIt
     "SetLootRollItem","SetInboxItem"}) do
     tooltip[method]=function(self) rebuild(bagLink) end
 end
+local coldBuyback = false
+function GetBuybackItemLink() if not coldBuyback then return bagLink end end
+function tooltip:SetBuybackItem() rebuild(GetBuybackItemLink()) end
 local lootLink, lootOwner=boots,CreateFrame("Button","TestLootButton")
 function tooltip:SetLootItem(slot) self.owner=lootOwner; rebuild(lootLink) end
 local auction={link=boots,count=1,minimum=100,buyout=200,bid=0,owner="Seller"}
@@ -367,6 +370,36 @@ for _, case in ipairs({{"SetBuybackItem","MERCHANT_UPDATE"},{"SetTradeTargetItem
     event(case[2]); tooltip[case[1]](tooltip,1,1)
     check(rendered("+2 Strength")==0,case[2].." invalidates same-entry cache")
 end
+
+local buybackOwner = CreateFrame("Button", "TestBuybackButton")
+tooltip:SetOwner(buybackOwner); tooltip:SetBuybackItem(1)
+id=latestRequest()
+for i=1,3 do
+    tooltip:SetOwner(buybackOwner); tooltip:SetBuybackItem(1); tick()
+    check(latestRequest()==id,"same buyback hover retains the pending request")
+end
+reply(id,10411,402,strength)
+check(rendered("+2 Strength")==1,"delayed buyback reply survives native refreshes")
+rebuild(bagLink); tick()
+check(rendered("+2 Strength")==1,"native item rebuild restores buyback affix")
+tooltip:SetBuybackItem(2); local replacement=latestRequest()
+check(replacement~=id and rendered("+2 Strength")==0,"identical item in a different buyback slot needs a new reply")
+event("MERCHANT_CLOSED"); reply(replacement,10411,403,stamina)
+check(rendered("+4 Stamina")==0,"closing the merchant rejects pending buyback replies")
+tooltip:Hide(); tooltip:SetOwner(buybackOwner); tooltip:SetBuybackItem(1)
+reply(latestRequest(),10411,405,pack(43,2,18,3))
+rebuild(bagLink); tick()
+check(rendered("+2 Mana per 5 sec")==1,"v3 MP5 displays once after a native buyback rebuild")
+tooltip:SetHyperlink(bagLink); tick()
+check(rendered("+2 Mana per 5 sec")==0,"v3 MP5 stays attached to the exact buyback context")
+tooltip:Hide(); coldBuyback=true; tooltip:SetOwner(buybackOwner); tooltip:SetBuybackItem(1)
+coldBuyback=false; event("GET_ITEM_INFO_RECEIVED",10411,true); tick()
+local warmed=latestRequest()
+check(warmed~=replacement,"cold buyback link triggers a query after item data loads")
+reply(warmed,10411,404,stamina)
+check(rendered("+4 Stamina")==1,"cold buyback tooltip receives the correct affix")
+tooltip:SetHyperlink(bagLink); tick()
+check(rendered("+4 Stamina")==0,"generic tooltip with matching link never inherits buyback affix")
 
 -- Foreign inventory is revalidated without recurring display flicker.
 tooltip:SetInventoryItem("target",8); id=latestRequest(); reply(id,10411,500,strength)

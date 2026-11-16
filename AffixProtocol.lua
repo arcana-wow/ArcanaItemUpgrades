@@ -3,7 +3,17 @@
 ArcanaAffixProtocol = {}
 local P = ArcanaAffixProtocol
 P.names = { [4]="Strength", [3]="Agility", [5]="Intellect", [6]="Spirit", [7]="Stamina",
-    [38]="Attack Power", [45]="Spell Power", [32]="Crit Rating", [36]="Haste Rating", [44]="Armor Penetration Rating" }
+    [38]="Attack Power", [45]="Spell Power", [32]="Crit Rating", [36]="Haste Rating", [44]="Armor Penetration Rating",
+    [31]="Hit Rating", [37]="Expertise Rating", [12]="Defense Rating", [13]="Dodge Rating",
+    [14]="Parry Rating", [43]="Mana per 5 sec" }
+local v3Stats = { [31]=true, [37]=true, [12]=true, [13]=true, [14]=true, [43]=true }
+local ratingBounds = {{2,3},{4,5},{7,8},{8,10},{16,20}}
+local v3Bounds = {
+    [7]={{2,3},{4,5},{11,12},{12,15},{24,30}},
+    [38]={{4,6},{8,10},{15,16},{16,20},{32,40}},
+    [45]={{2,3},{5,6},{8,9},{9,12},{19,23}},
+    [43]={{1,2},{2,3},{3,4},{4,5},{8,10}}
+}
 
 function P.Split(text)
     local fields = {}
@@ -30,9 +40,15 @@ function P.Describe(packed)
     if not packed or packed == 0 then return nil end
     local version = math.floor(packed / 524288)
     local level = math.floor(packed / 4096) % 128
-    if version < 1 or version > 2 or level < 10 or level > 80 then return nil end
+    if version < 1 or version > 3 or level < 10 or level > 80 then return nil end
     local stat, amount = packed % 64, math.floor(packed / 64) % 64
     if not P.names[stat] or amount == 0 then return nil end
+    if version < 3 and v3Stats[stat] then return nil end
+    if version == 3 then
+        local band = level <= 30 and 1 or level <= 59 and 2 or level <= 69 and 3 or level <= 79 and 4 or 5
+        local bounds = (v3Bounds[stat] or ratingBounds)[band]
+        if amount < bounds[1] or amount > bounds[2] then return nil end
+    end
     return "+" .. amount .. " " .. P.names[stat]
 end
 function P.Row(fields, offset)

@@ -279,7 +279,7 @@ local function Query(tooltip, context, first, second)
     second = second or 0
     local key = table.concat({context, first, second, epochs[context], link}, "\t")
     local view = tooltip.arcanaAffixCache
-    if not view or view.key ~= key then
+    if not view or view.key ~= key or (context == "Y" and view.owner ~= tooltip:GetOwner()) then
         DetachRequest(view)
         RemoveLine(tooltip)
         view = context == "I" and InspectionView(first, link, entry, second) or nil
@@ -345,10 +345,34 @@ local function ClearBagView(tooltip)
         RemoveLine(tooltip)
     end
 end
+local function CurrentBuybackView(tooltip)
+    local binding = tooltip.arcanaAffixBuyback
+    if not binding or binding.epoch ~= epochs.Y or tooltip:GetOwner() ~= binding.owner or
+        not tooltip:IsShown() then return end
+    local link = CurrentLink(tooltip)
+    if P.Entry(link) and GetBuybackItemLink(binding.slot) == link and
+        (not binding.link or link == binding.link) then return binding, link end
+end
+local function ClearBuybackView(tooltip)
+    tooltip.arcanaAffixBuyback = nil
+    local view = tooltip.arcanaAffixCache
+    if view and view.context == "Y" then
+        CancelRequest(view)
+        tooltip.arcanaAffixCache, tooltip.arcanaAffixHiddenView = nil, nil
+        if tooltip.arcanaAffixView == view then tooltip.arcanaAffixView = nil end
+        RemoveLine(tooltip)
+    end
+end
 local function RefreshTooltip()
     local tooltip = GameTooltip
+    local buyback, link = CurrentBuybackView(tooltip)
+    if buyback then
+        buyback.link = link
+        Query(tooltip, "Y", buyback.slot, 0)
+        return
+    end
     local view = tooltip.arcanaAffixView or CurrentBagView(tooltip)
-    if view and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
+    if view and view.context ~= "Y" and tooltip:IsShown() and CurrentLink(tooltip) == view.link then
         Query(tooltip, view.context, view.first, view.second)
     end
 end
@@ -495,12 +519,12 @@ local function HookTooltip(tooltip)
     end)
     tooltip:HookScript("OnTooltipSetItem", function(self)
         if CurrentLootView(self) then refreshLootTooltip = true end
-        if CurrentBagView(self) then refreshTooltip = true end
+        if CurrentBagView(self) or CurrentBuybackView(self) then refreshTooltip = true end
     end)
     tooltip:HookScript("OnHide", function(self)
         local view = self.arcanaAffixCache
-        if view and (view.context == "I" or view.context == "B") then
-            -- Bag providers and InspectPaperDoll call SetOwner before Set*Item.
+        if view and (view.context == "I" or view.context == "B" or view.context == "Y") then
+            -- Tooltip providers can call SetOwner before Set*Item.
             -- That intermediate hide is not a mouse leave. Retain the request
             -- until the next update; only Query with the same full identity can
             -- reattach it. A real leave retires the tooltip binding; only an
@@ -511,6 +535,7 @@ local function HookTooltip(tooltip)
             self.arcanaAffixCache, self.arcanaAffixHiddenView = nil, nil
         end
         self.arcanaAffixView, self.arcanaAffixSnapshot, self.arcanaAffixLoot, self.arcanaAffixBag = nil, nil, nil, nil
+        self.arcanaAffixBuyback = nil
         RemoveLine(self)
     end)
     hooksecurefunc(tooltip, "SetBagItem", function(self, bag, slot)
@@ -528,7 +553,28 @@ local function HookTooltip(tooltip)
     end)
     hooksecurefunc(tooltip, "SetTradePlayerItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "T", 0, slot) end)
     hooksecurefunc(tooltip, "SetTradeTargetItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "T", 1, slot) end)
-    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot) ClearBagView(self); ClearLootView(self); Query(self, "Y", slot, 0) end)
+    hooksecurefunc(tooltip, "SetBuybackItem", function(self, slot)
+        ClearBagView(self); ClearLootView(self)
+        local link = CurrentLink(self)
+        local view = self.arcanaAffixCache
+        if view and view.context == "Y" and
+            (view.first ~= slot or view.owner ~= self:GetOwner() or view.link ~= link) then
+            ClearBuybackView(self)
+        end
+        self.arcanaAffixBuyback = { slot=slot, owner=self:GetOwner(), epoch=epochs.Y }
+        if P.Entry(link) and GetBuybackItemLink(slot) == link then
+            self.arcanaAffixBuyback.link = link
+            Query(self, "Y", slot, 0)
+        end
+    end)
+    for _, setter in ipairs({"SetBagItem", "SetHyperlink", "SetText", "SetInventoryItem", "SetLootItem",
+        "SetLootRollItem", "SetInboxItem", "SetAuctionItem", "SetTradePlayerItem", "SetTradeTargetItem",
+        "SetMerchantItem", "SetQuestItem", "SetQuestLogItem", "SetCraftItem", "SetTradeSkillItem",
+        "SetGuildBankItem", "SetSendMailItem"}) do
+        if tooltip[setter] then hooksecurefunc(tooltip, setter, ClearBuybackView) end
+    end
+    tooltip:HookScript("OnTooltipSetSpell", ClearBuybackView)
+    tooltip:HookScript("OnTooltipSetUnit", ClearBuybackView)
     hooksecurefunc(tooltip, "SetLootItem", function(self, slot) ClearBagView(self); SnapshotTooltip(self, 0, slot) end)
     hooksecurefunc(tooltip, "SetLootRollItem", function(self, roll)
         ClearBagView(self); ClearLootView(self)
@@ -551,12 +597,12 @@ for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_
     "AUCTION_OWNED_LIST_UPDATE", "AUCTION_BIDDER_LIST_UPDATE", "AUCTION_HOUSE_CLOSED", "MAIL_INBOX_UPDATE",
     "MAIL_CLOSED", "PLAYER_DEAD", "PLAYER_ALIVE", "UNIT_INVENTORY_CHANGED", "PLAYER_LEVEL_UP",
     "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANKFRAME_CLOSED", "ADDON_LOADED",
-    "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRADE_SHOW", "TRADE_CLOSED",
+    "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRADE_SHOW", "TRADE_CLOSED",
     "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED", "PLAYER_ENTERING_WORLD", "GET_ITEM_INFO_RECEIVED"}) do events:RegisterEvent(event) end
 local invalidations = {
     BAG_UPDATE={"B", "E", "Y"}, PLAYER_EQUIPMENT_CHANGED={"E", "B"},
     PLAYERBANKSLOTS_CHANGED={"B", "E"}, PLAYERBANKBAGSLOTS_CHANGED={"B", "E"},
-    BANKFRAME_CLOSED={"B", "E"}, MERCHANT_UPDATE={"Y", "B", "E"}, MERCHANT_CLOSED={"Y"},
+    BANKFRAME_CLOSED={"B", "E"}, MERCHANT_SHOW={"Y"}, MERCHANT_UPDATE={"Y", "B", "E"}, MERCHANT_CLOSED={"Y"},
     TRADE_SHOW={"T"}, TRADE_CLOSED={"T"}, TRADE_PLAYER_ITEM_CHANGED={"T"},
     TRADE_TARGET_ITEM_CHANGED={"T"}, PLAYER_ENTERING_WORLD={"B", "E", "Y", "T", "I"},
     PLAYER_LEVEL_UP={"B", "E", "Y", "T", "I"},
@@ -638,6 +684,7 @@ events:SetScript("OnEvent", function(self, event, ...)
                         request.row, request.retryAt = nil, GetTime() + 1
                     end
                     if tooltip.arcanaAffixView == request and tooltip:IsShown() and
+                        (request.context ~= "Y" or CurrentBuybackView(tooltip)) and
                         CurrentLink(tooltip) == request.link then AddLine(tooltip, request.row) end
                 end
             end
@@ -647,6 +694,12 @@ events:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         if CurrentBagView(GameTooltip) then refreshTooltip = true end
+        local binding = GameTooltip.arcanaAffixBuyback
+        if binding and binding.epoch == epochs.Y and GameTooltip:GetOwner() == binding.owner and
+            GameTooltip:IsShown() and GetBuybackItemLink(binding.slot) then
+            if not CurrentLink(GameTooltip) then GameTooltip:SetBuybackItem(binding.slot) end
+            refreshTooltip = true
+        end
     elseif contextEvents[event] ~= nil then
         local context = contextEvents[event]
         if context == 0 then
