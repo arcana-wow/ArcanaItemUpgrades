@@ -35,6 +35,9 @@ end
 function P.Entry(link)
     return type(link) == "string" and tonumber(string.match(link, "item:(%d+):")) or nil
 end
+function P.ChatToken(value)
+    if type(value) == "string" and #value == 30 and value:match("^%x+$") then return value end
+end
 function P.Describe(packed)
     packed = P.UInt(packed)
     if not packed or packed == 0 then return nil end
@@ -51,9 +54,10 @@ function P.Describe(packed)
     end
     return "+" .. amount .. " " .. P.names[stat]
 end
-function P.Row(fields, offset)
+function P.Row(fields, offset, tokenOffset)
     local row = { entry=P.UInt(fields[offset]), guid=P.UInt(fields[offset+1]),
-        packed=P.UInt(fields[offset+2]), revision=P.UInt(fields[offset+3]) }
+        packed=P.UInt(fields[offset+2]), revision=P.UInt(fields[offset+3]),
+        chatToken=P.ChatToken(fields[tokenOffset or offset+4]) }
     if row.entry and row.guid and row.packed and row.revision then return row end
 end
 function P.New()
@@ -73,7 +77,7 @@ function P.Receive(state, message)
         end
     elseif f[1] == "C" then
         local snapshot, index = state.building[P.UInt(f[2]) or -1], P.UInt(f[3])
-        local row = P.Row(f, 4)
+        local row = P.Row(f, 4, 9)
         if snapshot and index and index <= 20000 and row and snapshot.count < 1000 then
             row.identity = f[8]
             snapshot.rows[index] = row

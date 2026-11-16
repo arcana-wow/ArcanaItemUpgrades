@@ -8,6 +8,8 @@ local pending, sequence = {}, 0
 local frame = ArcanaItemUpgradesFrame
 local ready, paying, refreshAt = false, false, nil
 local lootOpen, lootEpoch, refreshLootTooltip = false, 0, false
+local lootNotices, lastLootLine = {}, nil
+local chatItemView, openingChatItem, refreshChatItem
 
 local function Send(text)
     SendAddonMessage("AAF", text, "WHISPER", UnitName("player"))
@@ -405,7 +407,9 @@ local function SnapshotTooltip(tooltip, context, index)
     end
     tooltip.arcanaAffixSnapshot = view
     local row = snapshots[context] and snapshots[context][index]
-    if P.Matches(row, link) then AddLine(tooltip, row)
+    if P.Matches(row, link) then
+        view.row, view.owner = row, tooltip:GetOwner()
+        AddLine(tooltip, row)
     else
         RemoveLine(tooltip)
         if snapshotWaiting[context] then ReserveLine(tooltip) end
@@ -431,13 +435,17 @@ local function AuctionTooltip(tooltip, kind, index)
     local row, ambiguous = P.AuctionRow(snapshots[context], identity)
     local direct = identity and auctionResolved[context] and auctionResolved[context][identity]
     if row then
+        view.row, view.owner = row, tooltip:GetOwner()
         AddLine(tooltip, row)
     elseif ambiguous or (direct and direct.ambiguous) then
         RemoveLine(tooltip)
         tooltip:AddLine("Arcana bonuses differ between matching listings.", 1, 0.7, 0.3)
         tooltip:Show()
     elseif direct then
-        if direct.row then AddLine(tooltip, direct.row) else RemoveLine(tooltip) end
+        if direct.row then
+            view.row, view.owner = direct.row, tooltip:GetOwner()
+            AddLine(tooltip, direct.row)
+        else RemoveLine(tooltip) end
     else
         RemoveLine(tooltip)
         if snapshotWaiting[context] then ReserveLine(tooltip) end
@@ -590,6 +598,133 @@ local function HookTooltip(tooltip)
 end
 HookTooltip(GameTooltip)
 
+local nativeItemLink = "|Hitem:([%d:%-]+)|h[^|]*|h|r"
+
+local function LocalChatLink(link, token)
+    return (link:gsub("(|Hitem:[%d:%-]+)|h", "%1:AAF:" .. token .. "|h", 1))
+end
+
+local function ReadLootNotice(fields)
+    local entry, property, seed = P.UInt(fields[2]), tonumber(fields[3]), P.UInt(fields[4])
+    local count, self = P.UInt(fields[5]), fields[6] == "1"
+    local name, token = fields[7], P.ChatToken(fields[8])
+    if not entry or not property or not seed or not count or not name or not token then return end
+    if #lootNotices == 64 then table.remove(lootNotices, 1) end
+    lootNotices[#lootNotices+1] = { entry=entry, property=property, seed=seed, count=count, self=self,
+        name=name, token=token, expires=GetTime()+5 }
+end
+
+local function AnnotateLoot(text, lineId)
+    if not lineId then return text end
+    if lastLootLine and lastLootLine.id == lineId and lastLootLine.text == text then
+        return lastLootLine.result
+    end
+    local link, payload = text:match("(|c%x%x%x%x%x%x%x%x" .. nativeItemLink .. ")")
+    local result = text
+    if link then
+        local entry, property, seed = payload:match("^(%d+):[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:(%-?%d+):(%d+):")
+        entry, property, seed = tonumber(entry), tonumber(property), tonumber(seed)
+        local now, i = GetTime(), 1
+        while i <= #lootNotices do
+            local notice = lootNotices[i]
+            if notice.expires < now then
+                table.remove(lootNotices, i)
+            elseif notice.entry == entry and notice.property == property and (property >= 0 or notice.seed == seed) then
+                local expected
+                if notice.self then
+                    expected = notice.count == 1 and format(LOOT_ITEM_SELF, link) or
+                        format(LOOT_ITEM_SELF_MULTIPLE, link, notice.count)
+                else
+                    expected = notice.count == 1 and format(LOOT_ITEM, notice.name, link) or
+                        format(LOOT_ITEM_MULTIPLE, notice.name, link, notice.count)
+                end
+                if expected == text then
+                    local start, finish = text:find(link, 1, true)
+                    result = text:sub(1, start-1) .. LocalChatLink(link, notice.token) .. text:sub(finish+1)
+                    table.remove(lootNotices, i)
+                    break
+                end
+                i = i+1
+            else
+                i = i+1
+            end
+        end
+    end
+    lastLootLine = { id=lineId, text=text, result=result }
+    return result
+end
+
+local function AnnotateChat(_, event, text, ...)
+    local result = text:gsub("(" .. nativeItemLink .. ")%[AAF:(%x+)%]", function(link, _, value)
+        local token = P.ChatToken(value)
+        if token then return LocalChatLink(link, token) end
+    end)
+    if event == "CHAT_MSG_LOOT" then result = AnnotateLoot(result, select(10, ...)) end
+    return false, result, ...
+end
+
+local function ChatTextWithToken(link, token)
+    local edit = ChatEdit_GetActiveWindow()
+    if edit and #edit:GetText() + #link + #token + 7 <= 255 then return link .. "[AAF:" .. token .. "]" end
+    return link
+end
+
+if ChatEdit_InsertLink and ChatEdit_GetActiveWindow and GetMouseFocus then
+    local insertLink = ChatEdit_InsertLink
+    ChatEdit_InsertLink = function(link, ...)
+        local tooltip = GameTooltip
+        local view = tooltip.arcanaAffixView or tooltip.arcanaAffixSnapshot
+        if view and view.row and view.row.chatToken and view.link == link and tooltip:IsShown() and
+            view.owner == GetMouseFocus() and tooltip:GetOwner() == view.owner and CurrentLink(tooltip) == link then
+            link = ChatTextWithToken(link, view.row.chatToken)
+        end
+        return insertLink(link, ...)
+    end
+end
+
+if ChatFrame_AddMessageEventFilter and SetItemRef and ItemRefTooltip then
+    for _, channel in ipairs({"LOOT", "SAY", "YELL", "EMOTE", "TEXT_EMOTE", "WHISPER", "WHISPER_INFORM", "PARTY",
+        "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "BATTLEGROUND", "BATTLEGROUND_LEADER",
+        "GUILD", "OFFICER", "CHANNEL"}) do
+        ChatFrame_AddMessageEventFilter("CHAT_MSG_" .. channel, AnnotateChat)
+    end
+    local setItemRef = SetItemRef
+    SetItemRef = function(link, text, button, chatFrame)
+        local native, value = link:match("^(item:[%d:%-]+):AAF:(%x+)$")
+        local token = P.ChatToken(value)
+        if not token then return setItemRef(link, text, button, chatFrame) end
+        local normalText = text:gsub(":AAF:%x+|h", "|h", 1)
+        if IsModifiedClick("CHATLINK") and ChatEdit_GetActiveWindow() then
+            return ChatEdit_InsertLink(ChatTextWithToken(normalText, token))
+        end
+        if IsModifiedClick() then return setItemRef(native, normalText, button, chatFrame) end
+        openingChatItem = true
+        chatItemView = nil
+        setItemRef(native, normalText, button, chatFrame)
+        openingChatItem = false
+        local entry = P.Entry(native)
+        if entry and ItemRefTooltip:IsShown() then
+            sequence = sequence+1
+            chatItemView = { entry=entry, id=sequence }
+            Send(table.concat({"L", sequence, entry, token}, "\t"))
+        end
+    end
+    ItemRefTooltip:HookScript("OnHide", function(self)
+        chatItemView = nil
+        RemoveLine(self)
+    end)
+    ItemRefTooltip:HookScript("OnTooltipCleared", function(self)
+        self.arcanaAffixLine = nil
+    end)
+    ItemRefTooltip:HookScript("OnTooltipSetItem", function() refreshChatItem = true end)
+    hooksecurefunc(ItemRefTooltip, "SetHyperlink", function(self)
+        if not openingChatItem then
+            chatItemView = nil
+            RemoveLine(self)
+        end
+    end)
+end
+
 local events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_LOGIN", "CHAT_MSG_ADDON", "BAG_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA", "LOOT_OPENED", "LOOT_CLOSED",
@@ -623,12 +758,21 @@ events:SetScript("OnEvent", function(self, event, ...)
         if (...) == "Blizzard_InspectUI" then HookInspection() end
     elseif event == "PLAYER_LOGIN" then
         if type(RegisterAddonMessagePrefix) == "function" then RegisterAddonMessagePrefix("AAF") end
+        Send("LINKS")
         Sync()
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = ...
         if prefix ~= "AAF" or channel ~= "WHISPER" or sender ~= UnitName("player") then return end
         local f, completedContext = P.Receive(state, message)
-        if f[1] == "AV" then
+        if f[1] == "LN" then
+            ReadLootNotice(f)
+        elseif f[1] == "LV" then
+            local view = chatItemView
+            if view and view.id == P.UInt(f[2]) and view.entry == P.UInt(f[3]) then
+                view.packed = P.UInt(f[4])
+                refreshChatItem = true
+            end
+        elseif f[1] == "AV" then
             local id, status = P.UInt(f[2]), P.UInt(f[3])
             local request = id and auctionPending[id]
             if request then
@@ -764,6 +908,13 @@ events:SetScript("OnUpdate", function()
     end
     if refreshTooltip then refreshTooltip = false; RefreshTooltip() end
     if refreshLootTooltip then refreshLootTooltip = false; RestoreLootTooltip(GameTooltip) end
+    if refreshChatItem then
+        refreshChatItem = false
+        local view = chatItemView
+        if view and ItemRefTooltip:IsShown() and view.entry == P.Entry(CurrentLink(ItemRefTooltip)) then
+            AddLine(ItemRefTooltip, view)
+        end
+    end
 end)
 
 function frame:RefreshAffixes() Sync() end

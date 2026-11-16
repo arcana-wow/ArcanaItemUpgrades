@@ -57,6 +57,20 @@ function host:GetSelectedEquipmentSlot() return self.selected end
 function host:SetAffixSlots(slots) self.slots=slots end
 GameTooltip=CreateFrame("Tooltip", "GameTooltip")
 local tooltip=GameTooltip
+ItemRefTooltip=CreateFrame("Tooltip", "ItemRefTooltip")
+local itemRef = ItemRefTooltip
+local chatLink, editText, mouseFocus
+local chatEdit = { GetText=function() return editText end }
+local chatFilters = {}
+format = string.format
+LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %s.", "You receive loot: %sx%d."
+LOOT_ITEM, LOOT_ITEM_MULTIPLE = "%s receives loot: %s.", "%s receives loot: %sx%d."
+function ChatFrame_AddMessageEventFilter(event, filter) chatFilters[event]=filter end
+function ChatEdit_GetActiveWindow() return editText and chatEdit end
+function ChatEdit_InsertLink(link) chatLink=link;return true end
+function GetMouseFocus() return mouseFocus end
+function IsModifiedClick() return false end
+function SetItemRef(link, text) itemRef:SetHyperlink(link) end
 StaticPopupDialogs={}; ACCEPT="Accept"; CANCEL="Cancel"
 DURABILITY_TEMPLATE="Durability %d / %d"; ITEM_MIN_LEVEL="Requires Level %d"
 ITEM_SPELL_TRIGGER_ONEQUIP="Equip:"; ITEM_SET_NAME="%s (%d/%d)"
@@ -88,26 +102,29 @@ local layoutColors
 local layout={"Footpads of the Fang", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
     "+5 Stamina", "Durability 44 / 45", "Requires Level 18", "", "Embrace of the Viper (3/5)",
     "Set: Increases nature spell power by\n7.", "Arcana Upgrade: 0/5", "GearScore: 17", "Vendor"}
-local function clear()
-    for i=1,tooltip:NumLines() do
-        _G["GameTooltipTextLeft"..i]:SetText(nil)
-        _G["GameTooltipTextRight"..i]:SetText(nil)
+local function clear(target)
+    for i=1,target:NumLines() do
+        _G[target.name.."TextLeft"..i]:SetText(nil)
+        _G[target.name.."TextRight"..i]:SetText(nil)
     end
-    tooltip.count=0
-    if tooltip.scripts.OnTooltipCleared then tooltip.scripts.OnTooltipCleared(tooltip) end
+    target.count=0
+    if target.scripts.OnTooltipCleared then target.scripts.OnTooltipCleared(target) end
 end
-local function rebuild(link)
-    clear(); tooltip.link=link; tooltip:Show()
+local function rebuild(link, target)
+    target = target or tooltip
+    clear(target); target.link=link; target:Show()
     for i,text in ipairs(layout) do
         local color = layoutColors and layoutColors[i] or (i==7 and {0,1,0} or {1,1,1})
-        tooltip:AddLine(text, unpack(color))
+        target:AddLine(text, unpack(color))
     end
     if #layout==15 then
-        GameTooltipTextRight3:SetText("Leather"); GameTooltipTextRight3:Show()
-        GameTooltipTextRight15:SetText("9 silver 45 copper"); GameTooltipTextRight15:Show()
+        local third, last = _G[target.name.."TextRight3"], _G[target.name.."TextRight15"]
+        third:SetText("Leather"); third:Show()
+        last:SetText("9 silver 45 copper"); last:Show()
     end
-    if tooltip.scripts.OnTooltipSetItem then tooltip.scripts.OnTooltipSetItem(tooltip) end
+    if target.scripts.OnTooltipSetItem then target.scripts.OnTooltipSetItem(target) end
 end
+function itemRef:SetHyperlink(link) rebuild(link, self) end
 function tooltip:SetInventoryItem(unit, slot) rebuild(GetInventoryItemLink(unit,slot)) end
 local bagLink=boots
 function GetContainerItemLink() return bagLink end
@@ -162,10 +179,11 @@ local function reply(id,entry,guid,bonus,revision)
     assert(id, "expected a tooltip request")
     receive(table.concat({"V",id,entry,guid,bonus,revision or 1},"\t"))
 end
-local function rendered(text)
+local function rendered(text, target)
+    target = target or tooltip
     local found=0
-    for i=1,tooltip:NumLines() do
-        local line=_G["GameTooltipTextLeft"..i]:GetText() or ""
+    for i=1,target:NumLines() do
+        local line=_G[target.name.."TextLeft"..i]:GetText() or ""
         if line:find("|cff00ff00"..text.."|r",1,true) then found=found+1 end
     end
     return found
@@ -913,5 +931,66 @@ receive("BEGIN\t0\t812"); receive("C\t812\t1\t10411\t0\t0\t0"); receive("END\t81
 check(tooltip.arcanaAffixLine==nil and rendered("+4 Stamina")==0,
     "explicit frozen zero resolves the invisible placeholder without inventing a bonus")
 event("LOOT_CLOSED")
+
+local nativeBoots = "|cff0070dd"..boots.."|r"
+local firstToken, secondToken = string.rep("A",30), string.rep("B",30)
+local function filterChat(channel, text, lineId)
+    local eventName = "CHAT_MSG_"..channel
+    local _, result = chatFilters[eventName]({}, eventName, text, "", "", "", "", "", 0, 0, "", 0, lineId)
+    return result
+end
+local function notice(token, name, self)
+    receive(table.concat({"LN",10411,0,0,1,self and 1 or 0,name,token},"\t"))
+end
+local function click(text, expectedToken)
+    SetItemRef(text:match("|H([^|]+)|h"), text, "LeftButton")
+    local request, entry, token = sent[#sent]:match("^L\t(%d+)\t(%d+)\t(%x+)$")
+    check(entry == "10411" and token == expectedToken, "link click resolves its own token")
+    return request
+end
+local ownLoot = format(LOOT_ITEM_SELF,nativeBoots)
+local partyLoot = format(LOOT_ITEM,"Other",nativeBoots)
+notice(firstToken,"Tester",true)
+check(filterChat("LOOT",partyLoot,1000)==partyLoot,"different recipient cannot consume an identical loot link")
+local firstDrop = filterChat("LOOT",ownLoot,1001)
+check(firstDrop:find(firstToken,1,true)~=nil,"first award embeds its own verified token")
+notice(secondToken,"Tester",true)
+check(filterChat("LOOT",ownLoot,1001)==firstDrop,"all frames use the same loot-line annotation")
+local secondDrop = filterChat("LOOT",ownLoot,1002)
+check(secondDrop:find(secondToken,1,true)~=nil,"second same-template award gets a different token")
+check(filterChat("LOOT",ownLoot,1003)==ownLoot,"ordinary loot stays plain after the award is consumed")
+local firstRequest = click(firstDrop,firstToken)
+local secondRequest = click(secondDrop,secondToken)
+receive("LV\t"..firstRequest.."\t10411\t"..stamina);tick()
+check(rendered("+4 Stamina",itemRef)==0,"late lookup cannot annotate a replacement link with the same entry")
+receive("LV\t"..secondRequest.."\t10411\t"..strength);tick()
+check(rendered("+2 Strength",itemRef)==1,"clicked loot shows the verified bonus")
+rebuild(itemRef.link,itemRef);tick()
+check(rendered("+2 Strength",itemRef)==1,"native redraw keeps the clicked link's verified bonus")
+SetItemRef(boots:match("|H([^|]+)|h"),nativeBoots,"LeftButton");tick()
+check(rendered("+2 Strength",itemRef)==0,"plain same-template links remain plain")
+local guildLink = filterChat("GUILD",nativeBoots.."[AAF:"..firstToken.."]",1004)
+local partyLink = filterChat("PARTY",nativeBoots.."[AAF:"..secondToken.."]",1005)
+check(guildLink:find("[AAF:",1,true)==nil and partyLink:find("[AAF:",1,true)==nil,
+    "chat keeps the normal link caption and hides protocol markers")
+local shareRequest = click(guildLink,firstToken)
+receive("LV\t"..shareRequest.."\t10411\t0");tick()
+check(rendered("+4 Stamina",itemRef)==0,"unverified link metadata stays plain")
+click(partyLink,secondToken)
+local bagOwner = CreateFrame("Button","ChatShareBag")
+bagLink=nativeBoots
+receive("SYNC")
+receive("B\t0\t1\t10411\t201\t"..stamina.."\t1\t"..firstToken)
+receive("DONE")
+tooltip:SetOwner(bagOwner);tooltip:SetBagItem(0,1)
+editText,mouseFocus="",bagOwner
+ChatEdit_InsertLink(nativeBoots)
+check(chatLink==nativeBoots.."[AAF:"..firstToken.."]","shift-click shares the exact hovered bag copy")
+mouseFocus=nil
+ChatEdit_InsertLink(nativeBoots)
+check(chatLink==nativeBoots,"plain link from another source cannot inherit the hovered copy")
+editText,mouseFocus=string.rep("X",245),bagOwner
+ChatEdit_InsertLink(nativeBoots)
+check(chatLink==nativeBoots,"extended metadata never exceeds the native chat budget")
 
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")
