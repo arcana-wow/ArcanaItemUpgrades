@@ -10,6 +10,7 @@ function methods:GetText()return self.text end
 function methods:SetText(text)self.text=text end
 function methods:SetTextColor(...)self.color={...}end
 function methods:SetScript(event,fn)self.scripts[event]=fn end
+function methods:RegisterEvent(event)self.events=self.events or {};self.events[event]=true end
 function methods:HookScript(event,fn)
     local old=self.scripts[event];self.scripts[event]=function(...)if old then old(...)end;fn(...)end
 end
@@ -145,6 +146,34 @@ now=now+1;ArcanaHeirloomPreview(UIParent,700002)
 GameTooltip:SetOwner(CreateFrame("Frame"));GameTooltip:SetHyperlink("item:19019")
 events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t2\t700002\t80","WHISPER","Tester")
 check(GameTooltip.link=="item:19019") -- Late response cannot overwrite another owner.
+-- A preview pending during teardown must not inspect or rebuild native tooltips.
+now=now+1;ArcanaHeirloomPreview(UIParent,700003)
+local shutdown=false
+for name,fn in pairs(methods) do
+    local original,name=fn,name
+    methods[name]=function(...) assert(not shutdown,"native "..name.." during teardown");return original(...) end
+end
+for _,name in ipairs({"UnitLevel","GetInventoryItemLink","UnitName","GetTime","SendAddonMessage"}) do
+    local original,name=_G[name],name
+    _G[name]=function(...) assert(not shutdown,name.." during teardown");return original(...) end
+end
+check(events.events.PLAYER_LOGOUT and events.events.PLAYER_ENTERING_WORLD)
+local beforeLogout=#sent
+shutdown=true
+events.scripts.OnEvent(events,"PLAYER_LOGOUT")
+events.scripts.OnUpdate(events)
+events.scripts.OnEvent(events,"GET_ITEM_INFO_RECEIVED",700003)
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t3\t700003\t80","WHISPER","Tester")
+ArcanaHeirloomPreview(UIParent,700003)
+ArcanaRenderHeirloomTooltip(GameTooltip,"player")
+check(#sent==beforeLogout)
+shutdown=false
+events.scripts.OnEvent(events,"PLAYER_ENTERING_WORLD")
+now=now+1;ArcanaHeirloomPreview(UIParent,700003)
+check(#sent==beforeLogout+1 and GameTooltipTextLeft1:GetText()=="Loading heirloom...")
+local newRequest=sent[#sent]:match("^PREVIEW\t(%d+)")
+events.scripts.OnEvent(events,"CHAT_MSG_ADDON","ARHL","PREVIEW\t"..newRequest.."\t700003\t80","WHISPER","Tester")
+check(GameTooltip.link=="item:700003:0:0:0:0:0:0:0")
 dofile("HeirloomEffects.lua")
 local D=ArcanaHeirloomEffects
 for _,row in pairs(D.spells)do

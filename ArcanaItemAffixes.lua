@@ -665,8 +665,29 @@ end
 
 local function ChatTextWithToken(link, token)
     local edit = ChatEdit_GetActiveWindow()
-    if edit and #edit:GetText() + #link + #token + 7 <= 255 then return link .. "[AAF:" .. token .. "]" end
+    if edit and #edit:GetText() + #link + #token + 7 <= 255 then return LocalChatLink(link, token) end
     return link
+end
+
+-- Keep metadata inside the local hyperlink while editing. Only the wire
+-- message carries a suffix: the server validates an ordinary native item link,
+-- and receiving clients fold the signed snapshot back into the hyperlink.
+if SendChatMessage then
+    local sendChat = SendChatMessage
+    SendChatMessage = function(text, ...)
+        if type(text) == "string" then
+            local pattern = "(|Hitem:[%d:%-]+):AAF:(%x+)(|h[^|]*|h|r)"
+            local wire = text:gsub(pattern, function(native, value, caption)
+                local token = P.ChatToken(value)
+                return native .. caption .. (token and ("[AAF:" .. token .. "]") or "")
+            end)
+            -- Editing after insertion can exhaust the byte budget. Preserve
+            -- all player text and native links, omitting optional affix data.
+            if #wire > 255 then wire = text:gsub(pattern, "%1%3") end
+            text = wire
+        end
+        return sendChat(text, ...)
+    end
 end
 
 if ChatEdit_InsertLink and ChatEdit_GetActiveWindow and GetMouseFocus then

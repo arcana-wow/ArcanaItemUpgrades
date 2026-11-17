@@ -59,7 +59,7 @@ GameTooltip=CreateFrame("Tooltip", "GameTooltip")
 local tooltip=GameTooltip
 ItemRefTooltip=CreateFrame("Tooltip", "ItemRefTooltip")
 local itemRef = ItemRefTooltip
-local chatLink, editText, mouseFocus
+local chatLink, editText, mouseFocus, modifiedClick, wireChat
 local chatEdit = { GetText=function() return editText end }
 local chatFilters = {}
 format = string.format
@@ -69,7 +69,8 @@ function ChatFrame_AddMessageEventFilter(event, filter) chatFilters[event]=filte
 function ChatEdit_GetActiveWindow() return editText and chatEdit end
 function ChatEdit_InsertLink(link) chatLink=link;return true end
 function GetMouseFocus() return mouseFocus end
-function IsModifiedClick() return false end
+function IsModifiedClick(kind) return modifiedClick and (not kind or kind=="CHATLINK") end
+function SendChatMessage(...) wireChat={...};return "sent" end
 function SetItemRef(link, text) itemRef:SetHyperlink(link) end
 StaticPopupDialogs={}; ACCEPT="Accept"; CANCEL="Cancel"
 DURABILITY_TEMPLATE="Durability %d / %d"; ITEM_MIN_LEVEL="Requires Level %d"
@@ -985,7 +986,41 @@ receive("DONE")
 tooltip:SetOwner(bagOwner);tooltip:SetBagItem(0,1)
 editText,mouseFocus="",bagOwner
 ChatEdit_InsertLink(nativeBoots)
-check(chatLink==nativeBoots.."[AAF:"..firstToken.."]","shift-click shares the exact hovered bag copy")
+local firstShare=chatLink
+local function visibleChat(text)
+    return (text:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|H[^|]+|h",""):gsub("|h",""):gsub("|r",""))
+end
+check(visibleChat(firstShare)=="[Footpads of the Fang]","composer shows only the item caption")
+check(SendChatMessage(firstShare,"WHISPER","Common","Recipient")=="sent","send wrapper preserves return value")
+check(wireChat[1]==nativeBoots.."[AAF:"..firstToken.."]" and wireChat[2]=="WHISPER" and
+    wireChat[3]=="Common" and wireChat[4]=="Recipient","send keeps native wire link, exact roll and destination")
+check(visibleChat(filterChat("WHISPER",wireChat[1],2001))=="[Footpads of the Fang]",
+    "recipient also sees only the item caption")
+-- Re-sharing a received link must preserve that copy, independent of the hovered bag.
+modifiedClick=true
+SetItemRef(partyLink:match("|H([^|]+)|h"),partyLink,"LeftButton")
+modifiedClick=false
+local secondShare=chatLink
+check(visibleChat(secondShare)=="[Footpads of the Fang]","re-sharing hides the identifier in the composer")
+local both="Compare "..firstShare.." and "..secondShare
+SendChatMessage(both,"PARTY")
+check(wireChat[1]=="Compare "..nativeBoots.."[AAF:"..firstToken.."] and "..nativeBoots.."[AAF:"..secondToken.."]",
+    "two identical item names keep distinct rolls")
+SendChatMessage(secondShare.." then "..firstShare,"GUILD")
+check(wireChat[1]==nativeBoots.."[AAF:"..secondToken.."] then "..nativeBoots.."[AAF:"..firstToken.."]",
+    "editing and reordering links preserves their own metadata")
+SendChatMessage("Removed both links","SAY")
+check(wireChat[1]=="Removed both links","deleted links cannot leave stale metadata")
+SendChatMessage(nativeBoots,"SAY")
+check(wireChat[1]==nativeBoots,"plain links stay plain")
+-- Typing after insertion can fill the byte budget. Keep the user's text and
+-- native links, dropping optional metadata instead of truncating the message.
+local boundary=string.rep("x",255-#firstShare)..firstShare
+SendChatMessage(boundary,"SAY")
+check(#wireChat[1]<=255 and wireChat[1]==string.rep("x",255-#firstShare)..nativeBoots,
+    "send-time overflow preserves text and drops optional affix metadata")
+SendChatMessage(firstShare.." |Hspell:123|h[Spell]|h|r","SAY")
+check(wireChat[1]:find("|Hspell:123|h[Spell]|h|r",1,true)~=nil,"other hyperlink types are untouched")
 mouseFocus=nil
 ChatEdit_InsertLink(nativeBoots)
 check(chatLink==nativeBoots,"plain link from another source cannot inherit the hovered copy")

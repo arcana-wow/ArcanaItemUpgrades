@@ -2,6 +2,7 @@
 -- its level-80 proc text with descriptions generated from the same server curves.
 local D=ArcanaHeirloomEffects
 if not D then return end
+local loggingOut=false
 local function Entry(link) return link and tonumber(link:match("item:(%d+)")) end
 local function Description(spell,level)
     local row=D.spells[spell]
@@ -86,6 +87,7 @@ local function NativeEffects(link,entry,level,effects)
     return result
 end
 function ArcanaRenderHeirloomTooltip(tooltip,unit)
+    if loggingOut then return end
     local _,link=tooltip:GetItem()
     local entry=Entry(link)
     local item=entry and D.items[entry]
@@ -179,6 +181,7 @@ local function RequestPreview()
     SendAddonMessage("ARHL","PREVIEW\t"..sequence.."\t"..preview.entry,"WHISPER",UnitName("player"))
 end
 function ArcanaHeirloomPreview(owner,entry)
+    if loggingOut then return end
     GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
     if refreshed[entry]==UnitLevel("player") then
         preview=nil
@@ -192,7 +195,14 @@ local events=CreateFrame("Frame")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("CHAT_MSG_ADDON")
+events:RegisterEvent("PLAYER_LOGOUT")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent",function(_,event,entry,message,channel,sender)
+    if event=="PLAYER_LOGOUT" then loggingOut=true;preview=nil;return end
+    if event=="PLAYER_ENTERING_WORLD" then
+        loggingOut=false;preview=nil;refreshed={};nativeCache={};itemCache={};return
+    end
+    if loggingOut then return end
     if event=="PLAYER_LEVEL_UP" then
         preview=nil;refreshed={};nativeCache={};itemCache={};return
     end
@@ -209,7 +219,7 @@ events:SetScript("OnEvent",function(_,event,entry,message,channel,sender)
     ShowPreview()
 end)
 events:SetScript("OnUpdate",function()
-    if not preview then return end
+    if loggingOut or not preview then return end
     if not tooltip:IsShown() or tooltip:GetOwner()~=preview.owner then preview=nil;return end
     if GetTime()>preview.expires then
         tooltip:ClearLines();tooltip:AddLine("Preview unavailable. Hover again to retry.",1,0.3,0.3)
