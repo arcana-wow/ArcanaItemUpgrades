@@ -1,6 +1,7 @@
 local frames,sent,menus,created={},{},{},{}
 local bagItems
 local now,combat,dead,level=1,false,false,30
+local shuttingDown=false
 local money,materials,bagLink=100000000,100,"item:16905:123:456"
 local methods={}
 function methods:SetScript(event,fn) self.scripts[event]=fn end
@@ -8,8 +9,12 @@ function methods:HookScript(event,fn)
     local old=self.scripts[event]
     self.scripts[event]=function(...) if old then old(...) end;fn(...) end
 end
-function methods:Show() self.shown=true end
-function methods:Hide() self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
+function methods:Show()
+    assert(not shuttingDown,"native Show during teardown")
+    local hidden=self.shown==false;self.shown=true
+    if hidden and self.scripts.OnShow then self.scripts.OnShow(self) end
+end
+function methods:Hide() assert(not shuttingDown,"native Hide during teardown");self.shown=false;if self.scripts.OnHide then self.scripts.OnHide(self) end end
 function methods:IsShown() return self.shown~=false end
 function methods:Enable() self.enabled=true end
 function methods:Disable() self.enabled=false end
@@ -358,4 +363,52 @@ check(frames.ArcanaHeirloomQuantity:IsShown() and amount:IsShown() and forge.ena
 click("ArcanaHeirloomForge");req=request()
 receive("QUOTE\t"..req[2].."\t"..id.."\t1\t700002\t0\t1\t3\t1\t1\t0\t30")
 check(confirmation:IsShown() and frames.ArcanaHeirloomPaymentLink.label.text:find("want to use 1 ×",1,true))
-print("PASS "..checks.." heirloom UI confirmation, stale inventory, timeout, ambiguous receipt, spoof, discovery and filtering checks")
+-- Model native teardown as unavailable APIs, not a Hide() that always succeeds.
+-- Keep the payment operation across both paid Forge and free Conjure logout.
+for _,name in ipairs({"GetTime","UnitName","GetRealmName","UnitCastingInfo","UnitChannelInfo",
+    "IsInInstance","UnitIsDeadOrGhost","UnitAffectingCombat","GetContainerItemLink","GetMoney",
+    "GetItemCount","GetItemInfo","SendAddonMessage"}) do
+    local original,name= _G[name],name
+    _G[name]=function(...) assert(not shuttingDown,name.." during teardown");return original(...) end
+end
+for _,kind in ipairs({1,2}) do
+    if kind==2 then
+        tick();snapshot(100);click("ArcanaHeirloomCompleted");click("ArcanaHeirloomRow1")
+        click("ArcanaHeirloomForge");req=request();check(req[1]=="CONJURE")
+        receive("QUOTE\t"..req[2].."\t"..id.."\t2\t700001\t100\t0\t0\t1\t0\t0\t30")
+    else click("ArcanaHeirloomConfirmAccept") end
+    check(request()[1]=="COMMIT")
+    local key="Test:Tester"
+    local saved=ArcanaItemUpgradesDB.heirloomPending[key]
+    local context=ArcanaItemUpgradesDB.heirloomPendingContext[key]
+    check(saved==id and context.kind==kind)
+    frames.ArcanaHeirloomSearch:SetText("queued search")
+    event("BAG_UPDATE") -- Queued refresh must also stop at logout.
+    local beforeLogout=#sent
+    local staleRequest=request()[2]
+    local receipt="\t"..kind.."\t"..context.family..(kind==1 and "\t100\t1\t0" or "\t100\t0\t777")
+    GameTooltip:Show()
+    shuttingDown=true
+    event("PLAYER_LOGOUT")
+    tick(60)
+    host.scripts.OnHide(host);host.scripts.OnShow(host)
+    host:RenderHeirlooms();host:RefreshHeirlooms();host:HeirloomTabChanged("Heirloom")
+    for _,frame in ipairs(created) do if frame.scripts.OnLeave then frame.scripts.OnLeave(frame) end end
+    event("BAG_UPDATE");event("PLAYER_MONEY")
+    receive("DONE\t"..staleRequest..receipt)
+    check(#sent==beforeLogout)
+    check(ArcanaItemUpgradesDB.heirloomPending[key]==saved and
+        ArcanaItemUpgradesDB.heirloomPendingContext[key]==context)
+    shuttingDown=false
+    event("PLAYER_ENTERING_WORLD");tick(1)
+    req=request();check(req[1]=="STATUS" and req[3]==saved)
+    for index=beforeLogout+1,#sent do
+        check(not sent[index]:match("^COMMIT") and not sent[index]:match("^CONJURE"))
+    end
+    receive("DONE\t"..req[2]..receipt)
+    check(not ArcanaItemUpgradesDB.heirloomPending[key] and not ArcanaItemUpgradesDB.heirloomPendingContext[key])
+end
+GameTooltip:Show();confirmation:Show();host:Hide()
+check(not GameTooltip:IsShown() and not confirmation:IsShown())
+host:Show();tick(1);check(request()[1]=="SYNC")
+print("PASS "..checks.." heirloom UI checks including teardown and durable payment recovery")

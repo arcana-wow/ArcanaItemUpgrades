@@ -57,6 +57,26 @@ function host:GetSelectedEquipmentSlot() return self.selected end
 function host:SetAffixSlots(slots) self.slots=slots end
 GameTooltip=CreateFrame("Tooltip", "GameTooltip")
 local tooltip=GameTooltip
+ItemRefTooltip=CreateFrame("Tooltip", "ItemRefTooltip")
+local itemRef = ItemRefTooltip
+local chatLink, editText, mouseFocus, modifiedClick, wireChat, activeEdit
+local chatEdit = { GetText=function() return editText end }
+local chatFilters = {}
+format = string.format
+LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %s.", "You receive loot: %sx%d."
+LOOT_ITEM, LOOT_ITEM_MULTIPLE = "%s receives loot: %s.", "%s receives loot: %sx%d."
+function ChatFrame_AddMessageEventFilter(event, filter) chatFilters[event]=filter end
+function ChatEdit_GetActiveWindow() return activeEdit or (editText and chatEdit) end
+function ChatEdit_InsertLink(link)
+    chatLink=link
+    local edit = ChatEdit_GetActiveWindow()
+    if edit and edit.Insert then edit:Insert(" "..link) end
+    return true
+end
+function GetMouseFocus() return mouseFocus end
+function IsModifiedClick(kind) return modifiedClick and (not kind or kind=="CHATLINK") end
+function SendChatMessage(...) wireChat={...};return "sent" end
+function SetItemRef(link, text) itemRef:SetHyperlink(link) end
 StaticPopupDialogs={}; ACCEPT="Accept"; CANCEL="Cancel"
 DURABILITY_TEMPLATE="Durability %d / %d"; ITEM_MIN_LEVEL="Requires Level %d"
 ITEM_SPELL_TRIGGER_ONEQUIP="Equip:"; ITEM_SET_NAME="%s (%d/%d)"
@@ -88,26 +108,29 @@ local layoutColors
 local layout={"Footpads of the Fang", "Soulbound", "Feet", "62 Armor", "+6 Agility", "+6 Stamina",
     "+5 Stamina", "Durability 44 / 45", "Requires Level 18", "", "Embrace of the Viper (3/5)",
     "Set: Increases nature spell power by\n7.", "Arcana Upgrade: 0/5", "GearScore: 17", "Vendor"}
-local function clear()
-    for i=1,tooltip:NumLines() do
-        _G["GameTooltipTextLeft"..i]:SetText(nil)
-        _G["GameTooltipTextRight"..i]:SetText(nil)
+local function clear(target)
+    for i=1,target:NumLines() do
+        _G[target.name.."TextLeft"..i]:SetText(nil)
+        _G[target.name.."TextRight"..i]:SetText(nil)
     end
-    tooltip.count=0
-    if tooltip.scripts.OnTooltipCleared then tooltip.scripts.OnTooltipCleared(tooltip) end
+    target.count=0
+    if target.scripts.OnTooltipCleared then target.scripts.OnTooltipCleared(target) end
 end
-local function rebuild(link)
-    clear(); tooltip.link=link; tooltip:Show()
+local function rebuild(link, target)
+    target = target or tooltip
+    clear(target); target.link=link; target:Show()
     for i,text in ipairs(layout) do
         local color = layoutColors and layoutColors[i] or (i==7 and {0,1,0} or {1,1,1})
-        tooltip:AddLine(text, unpack(color))
+        target:AddLine(text, unpack(color))
     end
     if #layout==15 then
-        GameTooltipTextRight3:SetText("Leather"); GameTooltipTextRight3:Show()
-        GameTooltipTextRight15:SetText("9 silver 45 copper"); GameTooltipTextRight15:Show()
+        local third, last = _G[target.name.."TextRight3"], _G[target.name.."TextRight15"]
+        third:SetText("Leather"); third:Show()
+        last:SetText("9 silver 45 copper"); last:Show()
     end
-    if tooltip.scripts.OnTooltipSetItem then tooltip.scripts.OnTooltipSetItem(tooltip) end
+    if target.scripts.OnTooltipSetItem then target.scripts.OnTooltipSetItem(target) end
 end
+function itemRef:SetHyperlink(link) rebuild(link, self) end
 function tooltip:SetInventoryItem(unit, slot) rebuild(GetInventoryItemLink(unit,slot)) end
 local bagLink=boots
 function GetContainerItemLink() return bagLink end
@@ -162,10 +185,11 @@ local function reply(id,entry,guid,bonus,revision)
     assert(id, "expected a tooltip request")
     receive(table.concat({"V",id,entry,guid,bonus,revision or 1},"\t"))
 end
-local function rendered(text)
+local function rendered(text, target)
+    target = target or tooltip
     local found=0
-    for i=1,tooltip:NumLines() do
-        local line=_G["GameTooltipTextLeft"..i]:GetText() or ""
+    for i=1,target:NumLines() do
+        local line=_G[target.name.."TextLeft"..i]:GetText() or ""
         if line:find("|cff00ff00"..text.."|r",1,true) then found=found+1 end
     end
     return found
@@ -913,5 +937,195 @@ receive("BEGIN\t0\t812"); receive("C\t812\t1\t10411\t0\t0\t0"); receive("END\t81
 check(tooltip.arcanaAffixLine==nil and rendered("+4 Stamina")==0,
     "explicit frozen zero resolves the invisible placeholder without inventing a bonus")
 event("LOOT_CLOSED")
+
+local nativeBoots = "|cff0070dd"..boots.."|r"
+local firstToken, secondToken = string.rep("A",30), string.rep("B",30)
+local function filterChat(channel, text, lineId)
+    local eventName = "CHAT_MSG_"..channel
+    local _, result = chatFilters[eventName]({}, eventName, text, "", "", "", "", "", 0, 0, "", 0, lineId)
+    return result
+end
+local function notice(token, name, self)
+    receive(table.concat({"LN",10411,0,0,1,self and 1 or 0,name,token},"\t"))
+end
+local function click(text, expectedToken)
+    SetItemRef(text:match("|H([^|]+)|h"), text, "LeftButton")
+    local request, entry, token = sent[#sent]:match("^L\t(%d+)\t(%d+)\t(%x+)$")
+    check(entry == "10411" and token == expectedToken, "link click resolves its own token")
+    return request
+end
+local ownLoot = format(LOOT_ITEM_SELF,nativeBoots)
+local partyLoot = format(LOOT_ITEM,"Other",nativeBoots)
+notice(firstToken,"Tester",true)
+check(filterChat("LOOT",partyLoot,1000)==partyLoot,"different recipient cannot consume an identical loot link")
+local firstDrop = filterChat("LOOT",ownLoot,1001)
+check(firstDrop:find(firstToken,1,true)~=nil,"first award embeds its own verified token")
+notice(secondToken,"Tester",true)
+check(filterChat("LOOT",ownLoot,1001)==firstDrop,"all frames use the same loot-line annotation")
+local secondDrop = filterChat("LOOT",ownLoot,1002)
+check(secondDrop:find(secondToken,1,true)~=nil,"second same-template award gets a different token")
+check(filterChat("LOOT",ownLoot,1003)==ownLoot,"ordinary loot stays plain after the award is consumed")
+local firstRequest = click(firstDrop,firstToken)
+local secondRequest = click(secondDrop,secondToken)
+receive("LV\t"..firstRequest.."\t10411\t"..stamina);tick()
+check(rendered("+4 Stamina",itemRef)==0,"late lookup cannot annotate a replacement link with the same entry")
+receive("LV\t"..secondRequest.."\t10411\t"..strength);tick()
+check(rendered("+2 Strength",itemRef)==1,"clicked loot shows the verified bonus")
+rebuild(itemRef.link,itemRef);tick()
+check(rendered("+2 Strength",itemRef)==1,"native redraw keeps the clicked link's verified bonus")
+SetItemRef(boots:match("|H([^|]+)|h"),nativeBoots,"LeftButton");tick()
+check(rendered("+2 Strength",itemRef)==0,"plain same-template links remain plain")
+local guildLink = filterChat("GUILD",nativeBoots.."[AAF:"..firstToken.."]",1004)
+local partyLink = filterChat("PARTY",nativeBoots.."[AAF:"..secondToken.."]",1005)
+check(guildLink:find("[AAF:",1,true)==nil and partyLink:find("[AAF:",1,true)==nil,
+    "chat keeps the normal link caption and hides protocol markers")
+local shareRequest = click(guildLink,firstToken)
+receive("LV\t"..shareRequest.."\t10411\t0");tick()
+check(rendered("+4 Stamina",itemRef)==0,"unverified link metadata stays plain")
+click(partyLink,secondToken)
+local bagOwner = CreateFrame("Button","ChatShareBag")
+bagLink=nativeBoots
+receive("SYNC")
+receive("B\t0\t1\t10411\t201\t"..stamina.."\t1\t"..firstToken)
+receive("DONE")
+tooltip:SetOwner(bagOwner);tooltip:SetBagItem(0,1)
+editText,mouseFocus="",bagOwner
+ChatEdit_InsertLink(nativeBoots)
+local firstShare=chatLink
+local function visibleChat(text)
+    return (text:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|H[^|]+|h",""):gsub("|h",""):gsub("|r",""))
+end
+check(visibleChat(firstShare)=="[Footpads of the Fang]","composer shows only the item caption")
+check(SendChatMessage(firstShare,"WHISPER","Common","Recipient")=="sent","send wrapper preserves return value")
+check(wireChat[1]==nativeBoots.."[AAF:"..firstToken.."]" and wireChat[2]=="WHISPER" and
+    wireChat[3]=="Common" and wireChat[4]=="Recipient","send keeps native wire link, exact roll and destination")
+check(visibleChat(filterChat("WHISPER",wireChat[1],2001))=="[Footpads of the Fang]",
+    "recipient also sees only the item caption")
+-- Re-sharing a received link must preserve that copy, independent of the hovered bag.
+modifiedClick=true
+SetItemRef(partyLink:match("|H([^|]+)|h"),partyLink,"LeftButton")
+modifiedClick=false
+local secondShare=chatLink
+check(visibleChat(secondShare)=="[Footpads of the Fang]","re-sharing hides the identifier in the composer")
+local both="Compare "..firstShare.." and "..secondShare
+SendChatMessage(both,"PARTY")
+check(wireChat[1]=="Compare "..nativeBoots.."[AAF:"..firstToken.."] and "..nativeBoots.."[AAF:"..secondToken.."]",
+    "two identical item names keep distinct rolls")
+SendChatMessage(secondShare.." then "..firstShare,"GUILD")
+check(wireChat[1]==nativeBoots.."[AAF:"..secondToken.."] then "..nativeBoots.."[AAF:"..firstToken.."]",
+    "editing and reordering links preserves their own metadata")
+SendChatMessage("Removed both links","SAY")
+check(wireChat[1]=="Removed both links","deleted links cannot leave stale metadata")
+SendChatMessage(nativeBoots,"SAY")
+check(wireChat[1]==nativeBoots,"plain links stay plain")
+-- Typing after insertion can fill the byte budget. Keep the user's text and
+-- native links, dropping optional metadata instead of truncating the message.
+local boundary=string.rep("x",255-#firstShare)..firstShare
+SendChatMessage(boundary,"SAY")
+check(#wireChat[1]<=255 and wireChat[1]==string.rep("x",255-#firstShare)..nativeBoots,
+    "send-time overflow preserves text and drops optional affix metadata")
+SendChatMessage(firstShare.." |Hspell:123|h[Spell]|h|r","SAY")
+check(wireChat[1]:find("|Hspell:123|h[Spell]|h|r",1,true)~=nil,"other hyperlink types are untouched")
+mouseFocus=nil
+ChatEdit_InsertLink(nativeBoots)
+check(chatLink==nativeBoots,"plain link from another source cannot inherit the hovered copy")
+editText,mouseFocus=string.rep("X",245),bagOwner
+ChatEdit_InsertLink(nativeBoots)
+check(chatLink==nativeBoots,"extended metadata never exceeds the native chat budget")
+
+-- Model the native editor's raw byte allowance and atomic hyperlink insertion.
+-- Unlike the old insertion spy, this exposes the third-link regression.
+local function editor(limit)
+    local edit = {text="", letters=limit, bytes=limit, scripts={}}
+    function edit:GetText() return self.text end
+    function edit:GetMaxLetters() return self.letters end
+    function edit:GetMaxBytes() return self.bytes end
+    function edit:SetMaxLetters(n) self.letters=n end
+    function edit:SetMaxBytes(n) self.bytes=n end
+    function edit:HookScript(event, fn) self.scripts[event]=fn end
+    function edit:SetText(text)
+        self.text=text
+        if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+    end
+    function edit:Insert(text)
+        local nextText = self.text..text
+        if self.selection then
+            nextText = self.text:sub(1,self.selection[1])..text..self.text:sub(self.selection[2]+1)
+        end
+        if #nextText <= math.min(self.letters,self.bytes) then self:SetText(nextText) end
+        self.selection=nil
+    end
+    return edit
+end
+local function plain(text) return (text:gsub(":AAF:%x+|h", "|h")) end
+local function relayPayload(start)
+    local payload, nextPart, count, id = "", 1, 0
+    for i=start+1,#sent do
+        local sequence, part, total, hex = sent[i]:match("^RLY\t(%d+)\t(%d+)\t(%d+)\t(%x+)$")
+        check(sequence~=nil and #sent[i]+4<=240,"each companion fits the existing addon request budget")
+        check(tonumber(part)==nextPart and (not id or id==sequence),"companion parts are ordered and bound")
+        id, nextPart, count = sequence, nextPart+1, tonumber(total)
+        payload=payload..hex:gsub("%x%x",function(value) return string.char(tonumber(value,16)) end)
+    end
+    check(nextPart==count+1 and count<=11,"companion is complete and bounded")
+    return payload
+end
+receive("RELAY\t1")
+local baseline, enhanced = editor(255), editor(255)
+mouseFocus=bagOwner
+activeEdit=baseline
+-- Establish the pre-affix capacity by calling the editor directly.
+for i=1,6 do baseline:Insert(" "..nativeBoots) end
+local nativeCount=select(2,baseline.text:gsub("|Hitem:",""))
+check(nativeCount>=3,"fixture fits at least three ordinary links")
+activeEdit=enhanced
+for i=1,6 do ChatEdit_InsertLink(i%2==0 and secondShare or firstShare) end
+check(plain(enhanced.text)==baseline.text,"affixed links retain exactly the original item capacity")
+check(select(2,enhanced.text:gsub(":AAF:",""))==nativeCount,"every inserted item keeps its own affix")
+check(enhanced.letters==255+35*nativeCount and enhanced.bytes==enhanced.letters,
+    "raw limits compensate only for metadata actually present")
+local before=#sent
+SendChatMessage(enhanced.text,"WHISPER","Common","Recipient")
+local expectedRecords={}
+for i=1,nativeCount do expectedRecords[i]=i..":"..(i%2==0 and secondToken or firstToken) end
+check(wireChat[1]==baseline.text and wireChat[2]=="WHISPER" and wireChat[4]=="Recipient",
+    "wire chat preserves the complete native message and recipient")
+check(relayPayload(before)=="7\t"..baseline.text.."\t"..table.concat(expectedRecords,","),
+    "every crowded-message affix travels separately with its occurrence index")
+local room=255-#plain(enhanced.text)
+enhanced:Insert(string.rep("x",room))
+enhanced:Insert("y")
+check(#plain(enhanced.text)==255,"ordinary text retains the same exact 255-byte allowance")
+before=#sent
+SendChatMessage(enhanced.text,"CHANNEL",nil,2)
+check(wireChat[1]==plain(enhanced.text) and #wireChat[1]==255 and wireChat[4]==2,
+    "full native input reaches a public channel without truncation")
+check(relayPayload(before)=="17\t"..plain(enhanced.text).."\t"..table.concat(expectedRecords,","),
+    "send-time overflow cannot discard affixes")
+enhanced:SetText(secondShare.." "..nativeBoots.." "..firstShare)
+before=#sent; SendChatMessage(enhanced.text,"GUILD")
+check(relayPayload(before)=="4\t"..plain(enhanced.text).."\t1:"..secondToken..",3:"..firstToken,
+    "reordering and interleaving ordinary copies preserves the correct two affixes")
+enhanced:SetText(firstShare)
+check(enhanced.letters==290,"deleting other links releases their exact metadata allowance")
+local fullBefore=string.rep("x",255-#nativeBoots)..firstShare
+enhanced:SetText(fullBefore)
+enhanced.selection={#fullBefore-#firstShare,#fullBefore}
+ChatEdit_InsertLink(secondShare)
+check(enhanced.text==fullBefore,"selected-link replacement cannot spend removed metadata as extra ordinary text")
+enhanced:SetText(firstShare)
+enhanced.selection={0,#firstShare}
+ChatEdit_InsertLink(secondShare)
+check(enhanced.text==" "..secondShare and enhanced.letters==290,"replacing a selected link retains the new copy")
+enhanced:SetText("")
+check(enhanced.letters==255 and enhanced.bytes==255,"clearing the editor restores native limits")
+local alternate=editor(180)
+activeEdit=alternate
+ChatEdit_InsertLink(firstShare)
+check(alternate.letters==215 and enhanced.letters==255,"separate chat windows retain their own original budgets")
+before=#sent;SendChatMessage("plain text","SAY")
+check(wireChat[1]=="plain text" and sent[#sent]=="RLC" and #sent==before+1,
+    "ordinary sending cancels an abandoned companion")
+activeEdit=nil
 
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")

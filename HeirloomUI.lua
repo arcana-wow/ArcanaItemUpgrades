@@ -8,6 +8,8 @@ local mode,source,original="Unlocked",0,0
 local itemClass,subclass,slotFilter,filterName
 local valid,reason=false,"Loading your account's heirlooms..."
 local Render,Sync,Invalidate
+local loggingOut=false
+local function HideTooltip() if not loggingOut then GameTooltip:Hide() end end
 local insufficient="You do not have the required item/currency."
 local panel=CreateFrame("Frame","ArcanaHeirloomPanel",host)
 panel:SetPoint("TOPLEFT",20,-120);panel:SetSize(560,520);panel:Hide()
@@ -22,8 +24,9 @@ local function Button(name,parent,text,x,y,width,callback)
     button:SetScript("OnClick",callback)
     return button
 end
-local function Active() return host:IsShown() and host.serviceTab=="Heirloom" end
+local function Active() return not loggingOut and host:IsShown() and host.serviceTab=="Heirloom" end
 local function Allowed()
+    if loggingOut then return false end
     local _,kind=IsInInstance()
     return not UnitIsDeadOrGhost("player") and not UnitAffectingCombat("player") and
         not UnitCastingInfo("player") and not UnitChannelInfo("player") and kind~="pvp" and kind~="arena"
@@ -43,8 +46,9 @@ local function HasPayment(kind,family,paymentSource,count,guid)
     return definition and definition.entry and GetItemCount(definition.entry,false)>=count
 end
 local function OriginalTooltip(owner,guid,family)
+    if loggingOut then return end
     local row=OriginalRow(guid,family)
-    if not row then GameTooltip:Hide();return end
+    if not row then HideTooltip();return end
     GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
     GameTooltip:SetBagItem(row.bag,row.slot);GameTooltip:Show()
 end
@@ -56,6 +60,7 @@ local function SaveOperation(id)
     ArcanaItemUpgradesDB.heirloomPending[Key()]=id
 end
 local function Request(kind,extra,selection)
+    if loggingOut then return end
     serial=serial%2147483647+1;lastRequest=GetTime()
     pending={request=serial,kind=kind,deadline=GetTime()+12,selection=selection}
     if selection then selection.request=serial end
@@ -88,7 +93,7 @@ local search=CreateFrame("EditBox","ArcanaHeirloomSearch",panel,"InputBoxTemplat
 search:SetPoint("TOPLEFT",5,-69);search:SetSize(543,22);search:SetAutoFocus(false);search:SetMaxLetters(80)
 search:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
 search:SetScript("OnTextChanged",function()
-    if Invalidate then
+    if Invalidate and not loggingOut then
         Invalidate();searchAt=GetTime()+0.25
         if Render then Render() end
     end
@@ -172,7 +177,7 @@ for index=1,8 do
             ArcanaHeirloomPreview(self,self.entry)
         end
     end)
-    button:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    button:SetScript("OnLeave",HideTooltip)
     buttons[index]=button
 end
 scroll:SetScript("OnVerticalScroll",function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,24,Render) end)
@@ -195,7 +200,7 @@ UIDropDownMenu_SetText(originalDrop,chooseOriginal)
 local originalHover=CreateFrame("Frame","ArcanaHeirloomOriginalHover",originalDrop)
 originalHover:SetPoint("TOPLEFT",20,-5);originalHover:SetSize(482,22);originalHover:EnableMouse(true)
 originalHover:SetScript("OnEnter",function(self) OriginalTooltip(self,original,selected) end)
-originalHover:SetScript("OnLeave",function() GameTooltip:Hide() end)
+originalHover:SetScript("OnLeave",HideTooltip)
 UIDropDownMenu_Initialize(material,function()
     for index,definition in ipairs(P.Materials) do
         local choice,name=index-1,definition.name
@@ -236,7 +241,7 @@ UIDropDownMenu_Initialize(originalDrop,function()
                     if UIDROPDOWNMENU_OPEN_MENU==originalDrop then OriginalTooltip(self,self.arcanaOriginal,selected) end
                 end)
                 button:HookScript("OnLeave",function()
-                    if UIDROPDOWNMENU_OPEN_MENU==originalDrop then GameTooltip:Hide() end
+                    if UIDROPDOWNMENU_OPEN_MENU==originalDrop then HideTooltip() end
                 end)
             end
         end
@@ -245,7 +250,7 @@ end)
 local estimate=Label(panel,"",0,-421,550,"GameFontHighlightSmall")
 local spending=Label(panel,"",0,-439,550,"GameFontHighlightSmall")
 local forge=Button("ArcanaHeirloomForge",panel,"Forge",175,-456,200,function()
-    if not selected or pending or operation or searchAt or not valid or not Allowed() then return end
+    if loggingOut or not selected or pending or operation or searchAt or not valid or not Allowed() then return end
     local state=progress[selected]
     if not state then return end
     local count=source==5 and 1 or P.Number(quantity:GetText(),100)
@@ -274,7 +279,7 @@ local question=Label(targetLink,"",0,0,420)
 targetLink:SetScript("OnEnter",function(self)
     if quote then ArcanaHeirloomPreview(self,quote.family) end
 end)
-targetLink:SetScript("OnLeave",function() GameTooltip:Hide() end)
+targetLink:SetScript("OnLeave",HideTooltip)
 local paymentLink=CreateFrame("Button","ArcanaHeirloomPaymentLink",dialog)
 paymentLink:SetPoint("TOPLEFT",20,-60);paymentLink:SetSize(420,42)
 paymentLink.label=Label(paymentLink,"",0,0,420)
@@ -285,8 +290,9 @@ paymentLink:SetScript("OnEnter",function(self)
         GameTooltip:SetOwner(self,"ANCHOR_RIGHT");GameTooltip:SetHyperlink(self.link);GameTooltip:Show()
     end
 end)
-paymentLink:SetScript("OnLeave",function() GameTooltip:Hide() end)
+paymentLink:SetScript("OnLeave",HideTooltip)
 local function CommitQuote()
+    if loggingOut then return end
     if not quote or quote.expires<=GetTime() or pending or operation or not Allowed() or
         not HasPayment(quote.kind,quote.family,quote.source,quote.quantity,quote.original) then
         Invalidate();Render();return
@@ -304,16 +310,20 @@ local accept=Button("ArcanaHeirloomConfirmAccept",dialog,"Forge",25,-114,195,Com
 Button("ArcanaHeirloomConfirmCancel",dialog,CANCEL,240,-114,195,function() Invalidate();Render() end)
 confirmation:SetScript("OnKeyDown",function(_,key) if key=="ESCAPE" then Invalidate();Render() end end)
 Invalidate=function()
-    quote=nil;confirmation:Hide();GameTooltip:Hide()
+    quote=nil
     if pending and (pending.kind=="QUOTE" or pending.kind=="CONJURE") then pending=nil end
+    if loggingOut then return end
+    confirmation:Hide();HideTooltip()
 end
 Sync=function()
+    if loggingOut then return end
     if GetTime()-lastRequest<0.6 then refreshAt=lastRequest+0.6;return end
     Invalidate();snapshot=nil;refreshAt=nil
     if operation then Request("STATUS",operation) else valid=false;Request("SYNC") end
     Render()
 end
 Render=function()
+    if loggingOut then return end
     for name,button in pairs(selectors) do
         local active=name==mode
         button:SetBackdropColor(active and 0.30 or 0.04,active and 0.22 or 0.04,0.04,1)
@@ -409,6 +419,7 @@ end
 function host:RenderHeirlooms() Render() end
 function host:RefreshHeirlooms() Sync() end
 function host:HeirloomTabChanged(tab)
+    if loggingOut then return end
     Invalidate()
     if tab=="Heirloom" then panel:Show();Sync() else panel:Hide() end
 end
@@ -416,6 +427,15 @@ local events=CreateFrame("Frame","ArcanaHeirloomEvents")
 for _,event in ipairs({"CHAT_MSG_ADDON","PLAYER_ENTERING_WORLD","PLAYER_LOGOUT","BAG_UPDATE",
     "PLAYER_EQUIPMENT_CHANGED","PLAYER_LEVEL_UP","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED","PLAYER_MONEY"}) do events:RegisterEvent(event) end
 events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
+    if event=="PLAYER_LOGOUT" then
+        -- Native tooltip/player state can already be unavailable. Only discard
+        -- transient Lua work; saved operations must reconcile after login.
+        loggingOut=true
+        quote,pending,snapshot,refreshAt,searchAt,gain=nil,nil,nil,nil,nil,nil
+        return
+    end
+    if event=="PLAYER_ENTERING_WORLD" then loggingOut=false end
+    if loggingOut then return end
     if event=="CHAT_MSG_ADDON" then
         if prefix~="ARHL" or channel~="WHISPER" or sender~=UnitName("player") then return end
         local fields=P.Split(message)
@@ -494,12 +514,12 @@ events:SetScript("OnEvent",function(_,event,prefix,message,channel,sender)
         if type(operationContext)~="table" or operationContext.id~=operation or
             type(operationContext.progress)~="number" or operationContext.progress<0 or operationContext.progress>100 then operationContext=nil end
         if not P.Id(operation) then operation=nil;operationContext=nil end
-    elseif event=="PLAYER_LOGOUT" then pending=nil;return
     elseif event=="BAG_UPDATE" or event=="PLAYER_EQUIPMENT_CHANGED" then valid=false end
     if Active() or operation then refreshAt=GetTime()+0.7 end
     Render()
 end)
 events:SetScript("OnUpdate",function()
+    if loggingOut then return end
     local now=GetTime()
     if operationContext and operationContext.kind==2 and UnitCastingInfo("player")=="Create Heirloom" and CastingBarFrameText then
         local text="Creating: "..catalogue[operationContext.family].name
@@ -517,5 +537,8 @@ events:SetScript("OnUpdate",function()
     end
     if refreshAt and now>=refreshAt and not pending then Sync() end
 end)
-host:HookScript("OnHide",function() panel:Hide();Invalidate();if not operation then pending=nil;refreshAt=nil end end)
-host:HookScript("OnShow",function() if host.serviceTab=="Heirloom" then panel:Show();Sync() end end)
+host:HookScript("OnHide",function()
+    if loggingOut then return end
+    panel:Hide();Invalidate();if not operation then pending=nil;refreshAt=nil end
+end)
+host:HookScript("OnShow",function() if not loggingOut and host.serviceTab=="Heirloom" then panel:Show();Sync() end end)
