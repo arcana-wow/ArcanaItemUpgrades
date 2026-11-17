@@ -1,5 +1,21 @@
 # ArcanaItemUpgrades
 
+## Chat capacity (1.18.10, Test)
+
+On a server advertising affix relay version 1, linking affixed items keeps the
+editor's original native-link/text allowance. Hidden local hyperlink metadata
+receives only its own extra raw space; removing links or clearing the editor
+releases it. Multiple copies keep their own affixes when reordered or shared.
+The addon sends bounded companion packets before the unchanged native chat
+message. The server verifies each signed snapshot and adds it after normal
+message validation, through the original chat routing and permissions. Older
+servers keep the legacy protocol. This release retains the 1.18.9 logout guards
+and saved-operation reconciliation.
+
+Lua regression coverage models native insertion limits, crowded messages,
+selection replacement, separate edit boxes, and all retained metadata at send.
+Actual client chat rendering and logout/exit acceptance remain manual checks.
+
 ## Heirloom satchel loot compatibility (1.18.3)
 
 Registers the missing heirloom-quality color in Wrath's Lua UI table using the

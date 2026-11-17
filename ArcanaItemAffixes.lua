@@ -663,28 +663,97 @@ local function AnnotateChat(_, event, text, ...)
     return false, result, ...
 end
 
+local chatRelay, relaySequence = false, 0
+local chatMetadata = "(|Hitem:[%d:%-]+):AAF:(%x+)(|h[^|]*|h|r)"
+local chatTypes = {SAY=1,PARTY=2,RAID=3,GUILD=4,OFFICER=5,YELL=6,WHISPER=7,EMOTE=10,
+    CHANNEL=17,RAID_LEADER=39,RAID_WARNING=40,BATTLEGROUND=44,BATTLEGROUND_LEADER=45,PARTY_LEADER=51}
+local editBudgets = setmetatable({}, {__mode="k"})
+local function MetadataBytes(text)
+    return #text - #text:gsub(chatMetadata, "%1%3")
+end
+
+local function UpdateChatBudget(edit, extra)
+    if not edit or not edit.GetMaxLetters or not edit.SetMaxLetters then return end
+    local budget = editBudgets[edit]
+    if not budget then
+        budget = {letters=edit:GetMaxLetters(), bytes=edit.GetMaxBytes and edit:GetMaxBytes(),
+            previous=edit:GetText() or ""}
+        editBudgets[edit] = budget
+        edit:HookScript("OnTextChanged", function(self) UpdateChatBudget(self) end)
+    end
+    if budget.updating then return end
+    budget.updating = true
+    local text = edit:GetText() or ""
+    local native = text:gsub(chatMetadata, "%1%3")
+    local letters = #native:gsub("[\128-\191]", "")
+    if (budget.letters and budget.letters > 0 and letters > budget.letters) or
+        (budget.bytes and budget.bytes > 0 and #native > budget.bytes) then
+        -- Replacing selected affixed links also removes their overhead. Reject
+        -- an insertion that only fit because of that now-removed allowance.
+        text = budget.previous
+        edit:SetText(text)
+        if edit.SetCursorPosition and budget.cursor then edit:SetCursorPosition(budget.cursor) end
+    else
+        budget.previous = text
+        budget.cursor = edit.GetCursorPosition and edit:GetCursorPosition()
+    end
+    local overhead = MetadataBytes(text) + (extra or 0)
+    -- Raise only the raw limit occupied by our hidden hyperlink fields. The
+    -- ordinary text/native-link allowance remains the edit box's own limit.
+    if budget.letters and budget.letters > 0 then edit:SetMaxLetters(budget.letters + overhead) end
+    if budget.bytes and budget.bytes > 0 then edit:SetMaxBytes(budget.bytes + overhead) end
+    budget.updating = false
+end
+
 local function ChatTextWithToken(link, token)
     local edit = ChatEdit_GetActiveWindow()
+    if edit and chatRelay then return LocalChatLink(link, token) end
     if edit and #edit:GetText() + #link + #token + 7 <= 255 then return LocalChatLink(link, token) end
     return link
 end
 
--- Keep metadata inside the local hyperlink while editing. Only the wire
--- message carries a suffix: the server validates an ordinary native item link,
--- and receiving clients fold the signed snapshot back into the hyperlink.
+local function RelayChat(text, chatType)
+    local records, ordinal = {}, 0
+    local native = text:gsub("|Hitem:[^|]+|h[^|]*|h|r", function(link)
+        ordinal = ordinal + 1
+        return (link:gsub(chatMetadata, function(base, value, caption)
+            local token = P.ChatToken(value)
+            if token then records[#records+1] = ordinal .. ":" .. token end
+            return base .. caption
+        end))
+    end)
+    if #records > 0 and chatTypes[chatType] and #native <= 255 then
+        relaySequence = relaySequence % 2147483647 + 1
+        local payload = chatTypes[chatType] .. "\t" .. native .. "\t" .. table.concat(records, ",")
+        local total = math.ceil(#payload / 100)
+        for part=1,total do
+            local hex = payload:sub((part-1)*100+1, part*100):gsub(".", function(c)
+                return string.format("%02X", string.byte(c))
+            end)
+            Send(table.concat({"RLY",relaySequence,part,total,hex}, "\t"))
+        end
+    else
+        Send("RLC")
+    end
+    return native
+end
+
+-- New servers relay verified snapshots after validating the original native
+-- message. Older servers retain the negotiated legacy wire format.
 if SendChatMessage then
     local sendChat = SendChatMessage
     SendChatMessage = function(text, ...)
         if type(text) == "string" then
-            local pattern = "(|Hitem:[%d:%-]+):AAF:(%x+)(|h[^|]*|h|r)"
-            local wire = text:gsub(pattern, function(native, value, caption)
-                local token = P.ChatToken(value)
-                return native .. caption .. (token and ("[AAF:" .. token .. "]") or "")
-            end)
-            -- Editing after insertion can exhaust the byte budget. Preserve
-            -- all player text and native links, omitting optional affix data.
-            if #wire > 255 then wire = text:gsub(pattern, "%1%3") end
-            text = wire
+            if chatRelay then
+                text = RelayChat(text, (...))
+            else
+                local wire = text:gsub(chatMetadata, function(native, value, caption)
+                    local token = P.ChatToken(value)
+                    return native .. caption .. (token and ("[AAF:" .. token .. "]") or "")
+                end)
+                if #wire > 255 then wire = text:gsub(chatMetadata, "%1%3") end
+                text = wire
+            end
         end
         return sendChat(text, ...)
     end
@@ -692,12 +761,21 @@ end
 
 if ChatEdit_InsertLink and ChatEdit_GetActiveWindow and GetMouseFocus then
     local insertLink = ChatEdit_InsertLink
+    local function FinishInsert(edit, ...)
+        UpdateChatBudget(edit)
+        return ...
+    end
     ChatEdit_InsertLink = function(link, ...)
         local tooltip = GameTooltip
         local view = tooltip.arcanaAffixView or tooltip.arcanaAffixSnapshot
         if view and view.row and view.row.chatToken and view.link == link and tooltip:IsShown() and
             view.owner == GetMouseFocus() and tooltip:GetOwner() == view.owner and CurrentLink(tooltip) == link then
             link = ChatTextWithToken(link, view.row.chatToken)
+        end
+        local edit = ChatEdit_GetActiveWindow()
+        if chatRelay and edit then
+            UpdateChatBudget(edit, MetadataBytes(link))
+            return FinishInsert(edit, insertLink(link, ...))
         end
         return insertLink(link, ...)
     end
@@ -778,6 +856,7 @@ events:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         if (...) == "Blizzard_InspectUI" then HookInspection() end
     elseif event == "PLAYER_LOGIN" then
+        chatRelay = false
         if type(RegisterAddonMessagePrefix) == "function" then RegisterAddonMessagePrefix("AAF") end
         Send("LINKS")
         Sync()
@@ -785,7 +864,9 @@ events:SetScript("OnEvent", function(self, event, ...)
         local prefix, message, channel, sender = ...
         if prefix ~= "AAF" or channel ~= "WHISPER" or sender ~= UnitName("player") then return end
         local f, completedContext = P.Receive(state, message)
-        if f[1] == "LN" then
+        if f[1] == "RELAY" then
+            chatRelay = f[2] == "1"
+        elseif f[1] == "LN" then
             ReadLootNotice(f)
         elseif f[1] == "LV" then
             local view = chatItemView

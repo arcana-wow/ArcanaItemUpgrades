@@ -59,15 +59,20 @@ GameTooltip=CreateFrame("Tooltip", "GameTooltip")
 local tooltip=GameTooltip
 ItemRefTooltip=CreateFrame("Tooltip", "ItemRefTooltip")
 local itemRef = ItemRefTooltip
-local chatLink, editText, mouseFocus, modifiedClick, wireChat
+local chatLink, editText, mouseFocus, modifiedClick, wireChat, activeEdit
 local chatEdit = { GetText=function() return editText end }
 local chatFilters = {}
 format = string.format
 LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %s.", "You receive loot: %sx%d."
 LOOT_ITEM, LOOT_ITEM_MULTIPLE = "%s receives loot: %s.", "%s receives loot: %sx%d."
 function ChatFrame_AddMessageEventFilter(event, filter) chatFilters[event]=filter end
-function ChatEdit_GetActiveWindow() return editText and chatEdit end
-function ChatEdit_InsertLink(link) chatLink=link;return true end
+function ChatEdit_GetActiveWindow() return activeEdit or (editText and chatEdit) end
+function ChatEdit_InsertLink(link)
+    chatLink=link
+    local edit = ChatEdit_GetActiveWindow()
+    if edit and edit.Insert then edit:Insert(" "..link) end
+    return true
+end
 function GetMouseFocus() return mouseFocus end
 function IsModifiedClick(kind) return modifiedClick and (not kind or kind=="CHATLINK") end
 function SendChatMessage(...) wireChat={...};return "sent" end
@@ -1027,5 +1032,100 @@ check(chatLink==nativeBoots,"plain link from another source cannot inherit the h
 editText,mouseFocus=string.rep("X",245),bagOwner
 ChatEdit_InsertLink(nativeBoots)
 check(chatLink==nativeBoots,"extended metadata never exceeds the native chat budget")
+
+-- Model the native editor's raw byte allowance and atomic hyperlink insertion.
+-- Unlike the old insertion spy, this exposes the third-link regression.
+local function editor(limit)
+    local edit = {text="", letters=limit, bytes=limit, scripts={}}
+    function edit:GetText() return self.text end
+    function edit:GetMaxLetters() return self.letters end
+    function edit:GetMaxBytes() return self.bytes end
+    function edit:SetMaxLetters(n) self.letters=n end
+    function edit:SetMaxBytes(n) self.bytes=n end
+    function edit:HookScript(event, fn) self.scripts[event]=fn end
+    function edit:SetText(text)
+        self.text=text
+        if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+    end
+    function edit:Insert(text)
+        local nextText = self.text..text
+        if self.selection then
+            nextText = self.text:sub(1,self.selection[1])..text..self.text:sub(self.selection[2]+1)
+        end
+        if #nextText <= math.min(self.letters,self.bytes) then self:SetText(nextText) end
+        self.selection=nil
+    end
+    return edit
+end
+local function plain(text) return (text:gsub(":AAF:%x+|h", "|h")) end
+local function relayPayload(start)
+    local payload, nextPart, count, id = "", 1, 0
+    for i=start+1,#sent do
+        local sequence, part, total, hex = sent[i]:match("^RLY\t(%d+)\t(%d+)\t(%d+)\t(%x+)$")
+        check(sequence~=nil and #sent[i]+4<=240,"each companion fits the existing addon request budget")
+        check(tonumber(part)==nextPart and (not id or id==sequence),"companion parts are ordered and bound")
+        id, nextPart, count = sequence, nextPart+1, tonumber(total)
+        payload=payload..hex:gsub("%x%x",function(value) return string.char(tonumber(value,16)) end)
+    end
+    check(nextPart==count+1 and count<=11,"companion is complete and bounded")
+    return payload
+end
+receive("RELAY\t1")
+local baseline, enhanced = editor(255), editor(255)
+mouseFocus=bagOwner
+activeEdit=baseline
+-- Establish the pre-affix capacity by calling the editor directly.
+for i=1,6 do baseline:Insert(" "..nativeBoots) end
+local nativeCount=select(2,baseline.text:gsub("|Hitem:",""))
+check(nativeCount>=3,"fixture fits at least three ordinary links")
+activeEdit=enhanced
+for i=1,6 do ChatEdit_InsertLink(i%2==0 and secondShare or firstShare) end
+check(plain(enhanced.text)==baseline.text,"affixed links retain exactly the original item capacity")
+check(select(2,enhanced.text:gsub(":AAF:",""))==nativeCount,"every inserted item keeps its own affix")
+check(enhanced.letters==255+35*nativeCount and enhanced.bytes==enhanced.letters,
+    "raw limits compensate only for metadata actually present")
+local before=#sent
+SendChatMessage(enhanced.text,"WHISPER","Common","Recipient")
+local expectedRecords={}
+for i=1,nativeCount do expectedRecords[i]=i..":"..(i%2==0 and secondToken or firstToken) end
+check(wireChat[1]==baseline.text and wireChat[2]=="WHISPER" and wireChat[4]=="Recipient",
+    "wire chat preserves the complete native message and recipient")
+check(relayPayload(before)=="7\t"..baseline.text.."\t"..table.concat(expectedRecords,","),
+    "every crowded-message affix travels separately with its occurrence index")
+local room=255-#plain(enhanced.text)
+enhanced:Insert(string.rep("x",room))
+enhanced:Insert("y")
+check(#plain(enhanced.text)==255,"ordinary text retains the same exact 255-byte allowance")
+before=#sent
+SendChatMessage(enhanced.text,"CHANNEL",nil,2)
+check(wireChat[1]==plain(enhanced.text) and #wireChat[1]==255 and wireChat[4]==2,
+    "full native input reaches a public channel without truncation")
+check(relayPayload(before)=="17\t"..plain(enhanced.text).."\t"..table.concat(expectedRecords,","),
+    "send-time overflow cannot discard affixes")
+enhanced:SetText(secondShare.." "..nativeBoots.." "..firstShare)
+before=#sent; SendChatMessage(enhanced.text,"GUILD")
+check(relayPayload(before)=="4\t"..plain(enhanced.text).."\t1:"..secondToken..",3:"..firstToken,
+    "reordering and interleaving ordinary copies preserves the correct two affixes")
+enhanced:SetText(firstShare)
+check(enhanced.letters==290,"deleting other links releases their exact metadata allowance")
+local fullBefore=string.rep("x",255-#nativeBoots)..firstShare
+enhanced:SetText(fullBefore)
+enhanced.selection={#fullBefore-#firstShare,#fullBefore}
+ChatEdit_InsertLink(secondShare)
+check(enhanced.text==fullBefore,"selected-link replacement cannot spend removed metadata as extra ordinary text")
+enhanced:SetText(firstShare)
+enhanced.selection={0,#firstShare}
+ChatEdit_InsertLink(secondShare)
+check(enhanced.text==" "..secondShare and enhanced.letters==290,"replacing a selected link retains the new copy")
+enhanced:SetText("")
+check(enhanced.letters==255 and enhanced.bytes==255,"clearing the editor restores native limits")
+local alternate=editor(180)
+activeEdit=alternate
+ChatEdit_InsertLink(firstShare)
+check(alternate.letters==215 and enhanced.letters==255,"separate chat windows retain their own original budgets")
+before=#sent;SendChatMessage("plain text","SAY")
+check(wireChat[1]=="plain text" and sent[#sent]=="RLC" and #sent==before+1,
+    "ordinary sending cancels an abandoned companion")
+activeEdit=nil
 
 print("PASS: "..checks.." affix UI checks (Lua 5.1)")
