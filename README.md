@@ -73,8 +73,9 @@ to remove it. Different copies of the same item are tracked separately.
 Total vendor value, the 50% recycling tax and the gold returned are displayed
 before confirmation. Rewards arrive inside an **Arcana Salvage Satchel**. Open it
 from your bags to collect gold and any successful independent bonus rolls:
-50% Tempering, 15% Recalibration and 15% Ascension. Expand the Ascension tier odds
-to see how the selected items' average ilvl affects the five possible tiers.
+50% Tempering, 15% Recalibration and 5% Ascension on SYS-1 Test. Expand the
+Ascension tier odds to see the tier distribution after a successful Ascension
+roll. At an average ilvl of 284, an eligible batch has a 3.8365% chance of Apex.
 
 Recycling destroys the selected items and their gems, enchants, Tempering and
 Affixes. A quote lasts 30 seconds and is invalidated by inventory changes.
