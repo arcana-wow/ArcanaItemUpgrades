@@ -517,3 +517,11 @@ the equipment services. Ascension lists only equipment with a server-provided
 next ascension path; level and token availability still appear as eligibility
 messages. Filtering preserves native equipment IDs and resets hidden selection
 and excessive scroll offsets. Run all Lua 5.1 suites before packaging.
+
+### SYS-1 Ascension gear Test preview
+
+Version 1.18.11 aligns wearer-level Primal Blessing, Redemption and Nordrassil
+set descriptions and the restored percentage bonuses with the Test balance
+data. The incomplete Hakkari heirloom pair omits its unreachable bonus.
+Ascension catalogue previews show the lower qualifying or native bonus where
+a selected tier lacks enough distinct pieces. Use the paired Test patch.
