@@ -15,6 +15,59 @@ local function Description(spell)
     probe:Hide()
     return #text>0 and table.concat(text," ") or (GetSpellInfo(spell) or "Set bonus")
 end
+-- These released preview spells require more distinct same-tier pieces than exist.
+local previewFallbacks = {
+    [203888] = {51274, 0},
+    [203889] = {51274, 0},
+    [203890] = {51274, 0},
+    [203891] = {51274, 0},
+    [203892] = {51274, 0},
+    [203933] = {41685, 0},
+    [203934] = {41685, 0},
+    [203935] = {41685, 0},
+    [203936] = {41685, 0},
+    [203937] = {41685, 0},
+    [204188] = {41733, 0},
+    [204189] = {41733, 0},
+    [204190] = {41733, 0},
+    [204191] = {41733, 0},
+    [204192] = {41733, 0},
+    [204193] = {41732, 0},
+    [204194] = {41732, 0},
+    [204195] = {41732, 0},
+    [204196] = {41732, 0},
+    [204197] = {41732, 0},
+    [204203] = {41730, 0},
+    [204204] = {41730, 0},
+    [204205] = {41730, 0},
+    [204206] = {41730, 0},
+    [204207] = {41730, 0},
+    [204283] = {55596, 0},
+    [204284] = {55596, 0},
+    [204285] = {55596, 0},
+    [204286] = {55596, 0},
+    [204287] = {55596, 0},
+    [204483] = {51225, 0},
+    [204484] = {51225, 0},
+    [204485] = {51225, 0},
+    [204486] = {51225, 0},
+    [204487] = {51225, 0},
+    [204488] = {55564, 0},
+    [204489] = {55564, 0},
+    [204490] = {55564, 0},
+    [204491] = {55564, 0},
+    [204492] = {55564, 0},
+    [204826] = {61633, 0},
+    [204827] = {61633, 0},
+    [204828] = {61633, 0},
+    [204829] = {61633, 0},
+    [204830] = {61633, 0},
+    [205196] = {51263, 0},
+    [205197] = {51263, 0},
+    [205198] = {51263, 0},
+    [205199] = {51263, 0},
+    [205200] = {51263, 0},
+}
 local function Render(rows, target)
     local tooltip = target or tooltip
     if #rows==0 then return end
@@ -30,7 +83,14 @@ local function Render(rows, target)
         end
     end
     for i,row in ipairs(rows) do
-        local text="("..row.required..") Set: "..Description(row.spell)
+        local fallback = target and previewFallbacks[row.spell]
+        local spell = fallback and fallback[1] or row.spell
+        local label = ""
+        if fallback then
+            label = fallback[2] > 0 and (" (reachable at item level "..fallback[2]..")")
+                or " (native bonus with a mixed set)"
+        end
+        local text="("..row.required..") Set: "..Description(spell)..label
         local r,g,b=0.5,0.5,0.5
         if row.active then r,g,b=0,1,0 end
         if native[i] then native[i]:SetText(text);native[i]:SetTextColor(r,g,b)
